@@ -411,18 +411,18 @@ if __name__ == '__main__':
 
     # main parameters (required)
     parser.add_argument('--exp_suffix', type=str, help='exp suffix')
-    parser.add_argument('--model_version', type=str, help='model def file')
+    parser.add_argument('--model_version', type=str, help='model def file', default='./models/model_dynamic.py')
     parser.add_argument('--category', type=str, help='model def file')
-    parser.add_argument('--train_data_fn', type=str, help='training data file that indexs all data tuples')
-    parser.add_argument('--val_data_fn', type=str, help='validation data file that indexs all data tuples')
+    parser.add_argument('--train_data_fn', type=str, help='training data file that indexs all data tuples', default="../prepare_data/Chair.train.npy")
+    parser.add_argument('--val_data_fn', type=str, help='validation data file that indexs all data tuples', default="../prepare_data/Chair.val.npy")
 
     # main parameters (optional)
-    parser.add_argument('--device', type=str, default='cuda:0', help='cpu or cuda:x for using cuda on GPU number x')
+    parser.add_argument('--device', type=str, default='cpu', help='cpu or cuda:x for using cuda on GPU number x')
     parser.add_argument('--seed', type=int, default=3124256514,
                         help='random seed (for reproducibility) [specify -1 means to generate a random one]')
     # parser.add_argument('--seed', type=int, default=-1, help='random seed (for reproducibility) [specify -1 means to generate a random one]')
     parser.add_argument('--log_dir', type=str, default='logs', help='exp logs directory')
-    parser.add_argument('--data_dir', type=str, default='../../prepare_data', help='data directory')
+    parser.add_argument('--data_dir', type=str, default='../prepare_data', help='data directory')
     parser.add_argument('--overwrite', action='store_true', default=False,
                         help='overwrite if exp_dir exists [default: False]')
 
@@ -464,7 +464,7 @@ if __name__ == '__main__':
     parser.add_argument('--level', default='3', help='level of dataset')
 
     #model path
-    parser.add_argument('--model_dir', type=str, help='the path of the model')
+    parser.add_argument('--model_dir', type=str, help='the path of the model', default='../checkpoints/Chair')
 
     # parse args
     conf = parser.parse_args()
