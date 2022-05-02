@@ -251,7 +251,14 @@ def forward(batch, data_features, network, conf, \
 
     repeat_times = 5
     for repeat_ind in range(repeat_times):
-        total_pred_part_poses = network(conf, input_part_pairs.float(), input_part_valids.float(), input_part_pcs.float(), instance_label, same_class_list)     # B x P x P, B x P, B x P x N x 3
+        total_pred_part_poses = network(
+            conf,
+            input_part_pairs.float(),
+            input_part_valids.float(),
+            input_part_pcs.float(),
+            instance_label,
+            same_class_list
+        )     # B x P x P, B x P, B x P x N x 3
 
         for iter_ind in range(conf.iter):
             pred_part_poses = total_pred_part_poses[iter_ind]
@@ -533,6 +540,9 @@ if __name__ == '__main__':
     device = torch.device(conf.device)
     utils.printout(flog, f'Using device: {conf.device}\n')
     conf.device = device
+
+    # Putting this here to be compatible with the distractor script.
+    conf.max_distractor_num_part = 0
 
     ### start training
     train(conf)

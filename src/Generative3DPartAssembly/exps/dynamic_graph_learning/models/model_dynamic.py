@@ -205,7 +205,7 @@ class Network(nn.Module):
         self.mlp2 = MLP2(conf.feat_len)
         self.mlp3s = nn.ModuleList([MLP3(conf.feat_len) for i in range(conf.iter)])
         self.mlp4s = nn.ModuleList([MLP4(conf.feat_len) for i in range(conf.iter)])
-        self.mlp5s = nn.ModuleList([MLP5(conf.feat_len * 2 + conf.max_num_part + 7 + 16) for i in range(conf.iter)])
+        self.mlp5s = nn.ModuleList([MLP5(conf.feat_len * 2 + (conf.max_num_part + conf.max_distractor_num_part) + 7 + 16) for i in range(conf.iter)])
         self.relation_predictor = R_Predictor()
         self.relation_predictor_dense = R_Predictor()
         self.pose_extractor = Pose_extractor()
