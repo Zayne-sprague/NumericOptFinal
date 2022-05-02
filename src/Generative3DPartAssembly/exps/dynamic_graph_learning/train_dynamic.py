@@ -15,7 +15,8 @@ import torch.utils.data
 import torch.nn.functional as F
 torch.multiprocessing.set_sharing_strategy('file_system')
 from subprocess import call
-from data_dynamic import PartNetPartDataset
+# from data_dynamic import PartNetPartDataset
+from src.datasets.partnet_dataset import PartNetDataset
 import utils
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(BASE_DIR, '../utils'))
@@ -27,14 +28,32 @@ def train(conf):
     # create training and validation datasets and data loaders
     data_features = ['part_pcs', 'part_poses', 'part_valids', 'shape_id', 'part_ids', 'match_ids', 'pairs']
     
-    train_dataset = PartNetPartDataset(conf.category, conf.data_dir, conf.train_data_fn, data_features, \
-            max_num_part=conf.max_num_part, level=conf.level)
+    train_dataset = PartNetDataset(
+        category=conf.category,
+        data_file=conf.training_data_file,
+        level=conf.level,
+        data_features=data_features,
+        max_num_part=conf.max_num_part,
+    )
     utils.printout(conf.flog, str(train_dataset))
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=conf.batch_size, shuffle=True, pin_memory=True, \
-            num_workers=conf.num_workers, drop_last=True, collate_fn=utils.collate_feats_with_none, worker_init_fn=utils.worker_init_fn)
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=conf.batch_size,
+        shuffle=True,
+        pin_memory=True,
+        num_workers=conf.num_workers,
+        drop_last=True,
+        collate_fn=utils.collate_feats_with_none,
+        worker_init_fn=utils.worker_init_fn
+    )
     
-    val_dataset = PartNetPartDataset(conf.category, conf.data_dir, conf.val_data_fn, data_features, \
-            max_num_part=conf.max_num_part,level=conf.level)
+    val_dataset = PartNetDataset(
+        category=conf.category,
+        data_file=conf.validation_data_file,
+        level=conf.level,
+        data_features=data_features,
+        max_num_part=conf.max_num_part,
+    )
     utils.printout(conf.flog, str(val_dataset))
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=conf.batch_size, shuffle=False, pin_memory=True, \
             num_workers=0, drop_last=True, collate_fn=utils.collate_feats_with_none, worker_init_fn=utils.worker_init_fn)
@@ -419,8 +438,10 @@ if __name__ == '__main__':
     parser.add_argument('--exp_suffix', type=str, help='exp suffix')
     parser.add_argument('--model_version', type=str, help='model def file')
     parser.add_argument('--category', type=str, help='model def file')
-    parser.add_argument('--train_data_fn', type=str, help='training data file that indexs all data tuples')
-    parser.add_argument('--val_data_fn', type=str, help='validation data file that indexs all data tuples')
+    # parser.add_argument('--train_data_fn', type=str, help='training data file that indexs all data tuples')
+    # parser.add_argument('--val_data_fn', type=str, help='validation data file that indexs all data tuples')
+    parser.add_argument('--training_data_file', type=str, help='Path to the npy file for training')
+    parser.add_argument('--validation_data_file', type=str, help='Path to the npy file for training')
 
     # main parameters (optional)
     parser.add_argument('--device', type=str, default='cuda:0', help='cpu or cuda:x for using cuda on GPU number x')

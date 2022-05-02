@@ -256,44 +256,48 @@ class PartNetDataset(data.Dataset):
 
         data_feats = ()
 
-        if 'contact_points' in self.data_features:
-            contact_points = self.get_contact_points(shape_id)
-            data_feats = data_feats + (contact_points,)
+        # This is a loop due to the training file depending on the feature data being at the same index as
+        # specified in the data_features argument (i.e. sym must be at the same index in the output of this
+        # function as it was specified in self.data_features)
+        for feature in self.data_features:
+            if feature == 'contact_points':
+                contact_points = self.get_contact_points(shape_id)
+                data_feats = data_feats + (contact_points,)
 
-        if 'sym' in self.data_features:
-            syms = self.get_syms(shape_id, shape_data=shape_data)
-            data_feats = data_feats + (syms,)
+            elif feature == 'sym':
+                syms = self.get_syms(shape_id, shape_data=shape_data)
+                data_feats = data_feats + (syms,)
 
-        if 'semantic_ids' in self.data_features:
-            semantic_ids = self.get_semantic_ids(shape_id, shape_data=shape_data)
-            data_feats = data_feats + (semantic_ids,)
+            elif feature == 'semantic_ids':
+                semantic_ids = self.get_semantic_ids(shape_id, shape_data=shape_data)
+                data_feats = data_feats + (semantic_ids,)
 
-        if 'part_pcs' in self.data_features:
-            part_pcs = self.get_part_pcs(shape_id, shape_data=shape_data)
-            data_feats = data_feats + (part_pcs,)
+            elif feature == 'part_pcs':
+                part_pcs = self.get_part_pcs(shape_id, shape_data=shape_data)
+                data_feats = data_feats + (part_pcs,)
 
-        if 'part_poses' in self.data_features:
-            part_poses = self.get_part_poses(shape_id, shape_data=shape_data)
-            data_feats = data_feats + (part_poses,)
+            elif feature == 'part_poses':
+                part_poses = self.get_part_poses(shape_id, shape_data=shape_data)
+                data_feats = data_feats + (part_poses,)
 
-        if 'part_valids' in self.data_features:
-            part_valids = self.get_part_valids(shape_id, shape_data=shape_data)
-            data_feats = data_feats + (part_valids,)
+            elif feature == 'part_valids':
+                part_valids = self.get_part_valids(shape_id, shape_data=shape_data)
+                data_feats = data_feats + (part_valids,)
 
-        if 'shape_id' in self.data_features:
-            data_feats = data_feats + (shape_id,)
+            elif feature == 'shape_id':
+                data_feats = data_feats + (shape_id,)
 
-        if 'part_ids' in self.data_features:
-            part_ids = self.get_part_ids(shape_id, shape_data=shape_data)
-            data_feats = data_feats + (part_ids,)
+            elif feature == 'part_ids':
+                part_ids = self.get_part_ids(shape_id, shape_data=shape_data)
+                data_feats = data_feats + (part_ids,)
 
-        if 'pairs' in self.data_features:
-            pairs = self.get_pairs(shape_id, shape_data=shape_data)
-            data_feats = data_feats + (pairs,)
+            elif feature == 'pairs':
+                pairs = self.get_pairs(shape_id, shape_data=shape_data)
+                data_feats = data_feats + (pairs,)
 
-        if 'match_ids' in self.data_features:
-            match_ids = self.get_match_ids(shape_id, shape_data=shape_data)
-            data_feats = data_feats + (match_ids,)
+            elif feature == 'match_ids':
+                match_ids = self.get_match_ids(shape_id, shape_data=shape_data)
+                data_feats = data_feats + (match_ids,)
 
         return data_feats
 

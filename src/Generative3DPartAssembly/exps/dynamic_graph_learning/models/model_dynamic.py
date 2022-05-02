@@ -18,7 +18,14 @@ import ipdb
 import copy
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(BASE_DIR, '../utils'))
-from cd.chamfer import chamfer_distance
+
+try:
+    from cd.chamfer import chamfer_distance
+except:
+    print("ERROR: Could not load chamfer_distance, using test dist instead instead")
+    def chamfer_distance(x1, x2, *args, **kwargs):
+        return (x1 - x2).mean(dim=2), (x2 - x1).mean(dim=2)
+
 from quaternion import qrot
 from scipy.optimize import linear_sum_assignment
 import random
