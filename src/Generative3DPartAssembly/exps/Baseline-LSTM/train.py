@@ -126,10 +126,10 @@ def train(conf):
                 sum_total_shape_cd_loss += total_shape_cd_loss
 
             # optimize one step
-            network_lr_scheduler.step()
             network_opt.zero_grad()
             total_loss.backward()
             network_opt.step()
+            network_lr_scheduler.step()
 
             # save checkpoint
             with torch.no_grad():
