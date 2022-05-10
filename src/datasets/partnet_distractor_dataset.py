@@ -6,6 +6,7 @@ from random import choice
 
 from src.datasets.partnet_dataset import PartNetDataset, COMMON_DATA_FEATURES
 
+COMMON_DISTRACTOR_DATA_FEATURES = ('part_pcs', 'part_poses', 'part_valids', 'shape_id', 'part_ids', 'match_ids', 'pairs', 'part_labels')
 
 class PartNetDistractorDataset(data.Dataset):
 
@@ -13,7 +14,7 @@ class PartNetDistractorDataset(data.Dataset):
             self,
             training_dataset: PartNetDataset,
             distractor_dataset: Optional[PartNetDataset] = None,
-            data_features: List[str] = COMMON_DATA_FEATURES,
+            data_features: List[str] = COMMON_DISTRACTOR_DATA_FEATURES,
     ):
         # This dataset will be used in the getitem call to pull the gold parts from
         self.training_dataset = training_dataset
@@ -54,6 +55,9 @@ class PartNetDistractorDataset(data.Dataset):
 
         data_feats = ()
 
+        random_indices = list(range(self.training_dataset.max_num_part + self.distractor_dataset.max_num_part))
+        np.random.shuffle(random_indices)
+
         for feature in self.data_features:
             if feature == 'contact_points':
                 gold_contact_points = self.training_dataset.get_contact_points(gold_shape_id)
@@ -62,7 +66,9 @@ class PartNetDistractorDataset(data.Dataset):
                 if gold_contact_points is None or distractor_contact_points is None:
                     data_feats += (None,)
                 else:
-                    data_feats = data_feats + (torch.cat([gold_contact_points, distractor_contact_points], dim=1),)
+                    contact_points = torch.cat([gold_contact_points, distractor_contact_points], dim=1)
+                    contact_points[:, :, :] = contact_points[:, random_indices, :]
+                    data_feats = data_feats + (contact_points,)
 
             elif feature == 'sym':
                 gold_syms = self.training_dataset.get_syms(gold_shape_id, shape_data=gold_shape_data)
@@ -71,7 +77,9 @@ class PartNetDistractorDataset(data.Dataset):
                 if gold_syms is None or distractor_syms is None:
                     data_feats += (None,)
                 else:
-                    data_feats = data_feats + (torch.cat([gold_syms, distractor_syms], dim=1),)
+                    syms = torch.cat([gold_syms, distractor_syms], dim=1)
+                    syms[:, :, :] = syms[:, random_indices, :]
+                    data_feats = data_feats + (syms,)
 
             elif feature == 'semantic_ids':
                 gold_semantic_ids = self.training_dataset.get_semantic_ids(gold_shape_id, shape_data=gold_shape_data)
@@ -83,7 +91,9 @@ class PartNetDistractorDataset(data.Dataset):
                 if gold_semantic_ids is None or distractor_semantic_ids is None:
                     data_feats += (None,)
                 else:
-                    data_feats = data_feats + (torch.cat([gold_semantic_ids, distractor_semantic_ids], dim=1),)
+                    semantic_ids = torch.cat([gold_semantic_ids, distractor_semantic_ids], dim=1)
+                    semantic_ids[:, :, :] = semantic_ids[:, random_indices, :]
+                    data_feats = data_feats + (semantic_ids,)
 
             elif feature == 'part_pcs':
                 gold_part_pcs = self.training_dataset.get_part_pcs(gold_shape_id, shape_data=gold_shape_data)
@@ -95,7 +105,9 @@ class PartNetDistractorDataset(data.Dataset):
                 if gold_part_pcs is None or distractor_part_pcs is None:
                     data_feats += (None,)
                 else:
-                    data_feats = data_feats + (torch.cat([gold_part_pcs, distractor_part_pcs], dim=1),)
+                    part_pcs = torch.cat([gold_part_pcs, distractor_part_pcs], dim=1)
+                    part_pcs[:, :, :, :] = part_pcs[:, random_indices, :, :]
+                    data_feats = data_feats + (part_pcs,)
 
             elif feature == 'part_poses':
                 gold_part_poses = self.training_dataset.get_part_poses(gold_shape_id, shape_data=gold_shape_data)
@@ -107,7 +119,9 @@ class PartNetDistractorDataset(data.Dataset):
                 if gold_part_poses is None or distractor_part_poses is None:
                     data_feats += (None,)
                 else:
-                    data_feats = data_feats + (torch.cat([gold_part_poses, distractor_part_poses], dim=1),)
+                    part_poses = torch.cat([gold_part_poses, distractor_part_poses], dim=1)
+                    part_poses[:, :, :] = part_poses[:, random_indices, :]
+                    data_feats = data_feats + (part_poses,)
 
             elif feature == 'part_valids':
                 gold_part_valids = self.training_dataset.get_part_valids(gold_shape_id, shape_data=gold_shape_data)
@@ -119,7 +133,9 @@ class PartNetDistractorDataset(data.Dataset):
                 if gold_part_valids is None or distractor_part_valids is None:
                     data_feats += (None,)
                 else:
-                    data_feats = data_feats + (torch.cat([gold_part_valids, distractor_part_valids], dim=1),)
+                    part_valids = torch.cat([gold_part_valids, distractor_part_valids], dim=1)
+                    part_valids[:, :] = part_valids[:, random_indices]
+                    data_feats = data_feats + (part_valids,)
 
             elif feature == 'shape_id':
                 data_feats = data_feats + ((gold_shape_id, distractor_shape_id),)
@@ -134,7 +150,9 @@ class PartNetDistractorDataset(data.Dataset):
                 if gold_part_ids is None or distractor_part_ids is None:
                     data_feats += (None,)
                 else:
-                    data_feats = data_feats + (torch.cat([gold_part_ids, distractor_part_ids], dim=1),)
+                    part_ids = torch.cat([gold_part_ids, distractor_part_ids], dim=1)
+                    part_ids[:, :] = part_ids[:, random_indices]
+                    data_feats = data_feats + (part_ids,)
 
             elif feature == 'pairs':
                 gold_pairs = self.training_dataset.get_pairs(gold_shape_id, shape_data=gold_shape_data)
@@ -149,7 +167,11 @@ class PartNetDistractorDataset(data.Dataset):
                         gold_pairs.shape[2] + distractor_pairs.shape[2]
                     ]).double()
                     pairs[0:gold_pairs.shape[0], 0:gold_pairs.shape[1], 0:gold_pairs.shape[2]] += gold_pairs
-                    pairs[gold_pairs.shape[0]+1:, gold_pairs.shape[1]+1:, gold_pairs.shape[2]+1:] += distractor_pairs
+                    pairs[:, gold_pairs.shape[1]:, gold_pairs.shape[2]:] += distractor_pairs
+
+                    pairs[:, :, :] = pairs[:, :, random_indices]
+                    pairs[:, :, :] = pairs[:, random_indices, :]
+
                     data_feats = data_feats + (pairs,)
 
             elif feature == 'match_ids':
@@ -162,7 +184,16 @@ class PartNetDistractorDataset(data.Dataset):
                 if gold_match_ids is None or distractor_match_ids is None:
                     data_feats += (None,)
                 else:
-                    data_feats = data_feats + (np.concatenate([gold_match_ids, distractor_match_ids]),)
+                    match_ids = np.concatenate([gold_match_ids, distractor_match_ids])
+                    match_ids[:] = match_ids[random_indices]
+                    data_feats = data_feats + (match_ids,)
+            elif feature == 'part_labels':
+                gold_labels = [0] * self.training_dataset.max_num_part
+                distractor_labels = [1] * self.distractor_dataset.max_num_part
+
+                labels = np.array([*gold_labels, *distractor_labels])
+                labels[:] = labels[random_indices]
+                data_feats = data_feats + (labels,)
 
         return data_feats
 
