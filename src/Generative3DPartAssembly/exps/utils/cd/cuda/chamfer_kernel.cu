@@ -10,10 +10,10 @@ v1.2.0: AT_CHECK -> TORCH_CHECK
 #include <vector>
 
 #include <ATen/ATen.h>
-// #include <ATen/cuda/CUDAApplyUtils.cuh>  // at::cuda::getApplyGrid
+#include <ATen/cuda/CUDAApplyUtils.cuh>  // at::cuda::getApplyGrid
 #include <THC/THC.h>
 
-// #define CHECK_CUDA(x) AT_CHECK(x.type().is_cuda(), #x " must be a CUDA tensor")
+#define CHECK_CUDA(x) AT_CHECK(x.type().is_cuda(), #x " must be a CUDA tensor")
 #define CHECK_CONTIGUOUS(x) AT_CHECK(x.is_contiguous(), #x " must be contiguous")
 #define CHECK_INPUT(x) CHECK_CUDA(x); CHECK_CONTIGUOUS(x)
 
@@ -92,9 +92,7 @@ __global__ void ChamferForwardKernel(
 
 inline bool getGrid(uint64_t numBlocks, dim3& grid, int64_t curDevice) {
   if (curDevice == -1) return false;
-//   uint64_t maxGridX = at::cuda::getDeviceProperties(curDevice)->maxGridSize[0];
-  uint64_t maxGridX = at::cpu::getDeviceProperties(curDevice)->maxGridSize[0];
-
+  uint64_t maxGridX = at::cuda::getDeviceProperties(curDevice)->maxGridSize[0];
   if (numBlocks > maxGridX)
       numBlocks = maxGridX;
   grid = dim3(numBlocks);
@@ -135,7 +133,7 @@ std::vector<at::Tensor> ChamferForward(
   const auto num_block2 = (n2 + BLOCK_SIZE - 1) / BLOCK_SIZE;
   // From getApplyGrid: aten/src/ATen/cuda/CUDAApplyUtils.cuh
   dim3 grid1, grid2;
-  const auto curDevice = at::cpu::current_device();
+  const auto curDevice = at::cuda::current_device();
   getGrid(batch_size * num_block1, grid1, curDevice);
   getGrid(batch_size * num_block2, grid2, curDevice);
 
@@ -149,7 +147,7 @@ std::vector<at::Tensor> ChamferForward(
         idx1.data<int64_t>(),
         batch_size, n1, n2);
     }));
-//   THCudaCheck(cudaGetLastError());
+  THCudaCheck(cudaGetLastError());
 
   AT_DISPATCH_FLOATING_TYPES(xyz2.scalar_type(), "ChamferForward", ([&] {
     ChamferForwardKernel<scalar_t, int64_t, BLOCK_SIZE>
@@ -160,7 +158,7 @@ std::vector<at::Tensor> ChamferForward(
         idx2.data<int64_t>(),
         batch_size, n2, n1);
     }));
-//   THCudaCheck(cudaGetLastError());
+  THCudaCheck(cudaGetLastError());
 
   return std::vector<at::Tensor>({dist1, idx1, dist2, idx2});
 }
@@ -250,12 +248,12 @@ std::vector<at::Tensor> ChamferBackward(
   auto grad_xyz1 = at::zeros({batch_size, n1, 3}, grad_dist1.type());
   auto grad_xyz2 = at::zeros({batch_size, n2, 3}, grad_dist2.type());
   // Calculate grids and blocks for kernels
-  const dim3 block = at::cpu::getApplyBlock();
+  const dim3 block = at::cuda::getApplyBlock();
   dim3 grid1, grid2;
-  const auto curDevice = at::cpu::current_device();
+  const auto curDevice = at::cuda::current_device();
   // getApplyGrid: aten/src/ATen/cuda/CUDAApplyUtils.cuh
-  THArgCheck(at::cpu::getApplyGrid(batch_size * n1, grid1, curDevice), 1, "Too many elements to calculate");
-  THArgCheck(at::cpu::getApplyGrid(batch_size * n2, grid2, curDevice), 1, "Too many elements to calculate");
+  THArgCheck(at::cuda::getApplyGrid(batch_size * n1, grid1, curDevice), 1, "Too many elements to calculate");
+  THArgCheck(at::cuda::getApplyGrid(batch_size * n2, grid2, curDevice), 1, "Too many elements to calculate");
 
   AT_DISPATCH_FLOATING_TYPES(grad_dist1.scalar_type(), "ChamferBackward", ([&] {
     ChamferBackwardKernel<scalar_t, int64_t>
@@ -268,7 +266,7 @@ std::vector<at::Tensor> ChamferBackward(
         grad_xyz2.data<scalar_t>(),
         batch_size, n1, n2);
   }));
-//   THCudaCheck(cudaGetLastError());
+  THCudaCheck(cudaGetLastError());
 
   AT_DISPATCH_FLOATING_TYPES(grad_dist2.scalar_type(), "ChamferBackward", ([&] {
     ChamferBackwardKernel<scalar_t, int64_t>
@@ -281,7 +279,7 @@ std::vector<at::Tensor> ChamferBackward(
         grad_xyz1.data<scalar_t>(),
         batch_size, n2, n1);
   }));
-//   THCudaCheck(cudaGetLastError());
+  THCudaCheck(cudaGetLastError());
 
   return std::vector<at::Tensor>({grad_xyz1, grad_xyz2});
 }
