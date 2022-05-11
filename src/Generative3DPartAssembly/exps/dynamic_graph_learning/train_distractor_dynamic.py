@@ -478,7 +478,7 @@ def forward(
             )
             
             #TODO: Incorporate this in not sure how to do it quite yet since the logic seems quite specific
-            distractor_loss=network.get_ditractor_loss() if not conf.distractors else 0
+            distractor_loss=network.get_distractor_loss() if not conf.distractors else 0
 
             # for each type of loss, compute avg loss per batch
             shape_cd_loss = shape_cd_loss_per_data.mean()
@@ -493,51 +493,60 @@ def forward(
                     + rot_l2_loss * conf.loss_weight_rot_l2
                     + rot_cd_loss * conf.loss_weight_rot_cd
                     + shape_cd_loss * conf.loss_weight_shape_cd
+                    + distractor_loss * conf.loss_weight_distractors
                 )
                 total_shape_cd_loss = shape_cd_loss
                 total_trans_l2_loss = trans_l2_loss
                 total_rot_l2_loss = rot_l2_loss
                 total_rot_cd_loss = rot_cd_loss
+                total_distractor_loss = distractor_loss
             elif iter_ind == conf.iter - 1:
                 total_loss += (
                     trans_l2_loss * conf.loss_weight_trans_l2
                     + rot_l2_loss * conf.loss_weight_rot_l2
                     + rot_cd_loss * conf.loss_weight_rot_cd
                     + shape_cd_loss * conf.loss_weight_shape_cd
+                    + distractor_loss * conf.loss_weight_distractors
                 )
                 total_shape_cd_loss += shape_cd_loss
                 total_trans_l2_loss += trans_l2_loss
                 total_rot_l2_loss += rot_l2_loss
                 total_rot_cd_loss += rot_cd_loss
+                total_distractor_loss += distractor_loss
                 if repeat_ind == 0:
                     res_loss = total_loss
                     res_shape_cd_loss = total_shape_cd_loss
                     res_trans_l2_loss = total_trans_l2_loss
                     res_rot_l2_loss = total_rot_l2_loss
                     res_rot_cd_loss = total_rot_cd_loss
+                    res_distractor_loss = total_distractor_loss
                 else:
                     res_loss = res_loss.min(total_loss)
                     res_shape_cd_loss = res_shape_cd_loss.min(total_shape_cd_loss)
                     res_trans_l2_loss = res_trans_l2_loss.min(total_trans_l2_loss)
                     res_rot_l2_loss = res_rot_l2_loss.min(total_rot_l2_loss)
                     res_rot_cd_loss = res_rot_cd_loss.min(total_rot_cd_loss)
+                    res_distractor_loss = res_distractor_loss.min(total_distractor_loss)
             else:
                 total_loss += (
                     trans_l2_loss * conf.loss_weight_trans_l2
                     + rot_l2_loss * conf.loss_weight_rot_l2
                     + rot_cd_loss * conf.loss_weight_rot_cd
                     + shape_cd_loss * conf.loss_weight_shape_cd
+                    + distractor_loss * conf.loss_weight_distractors
                 )
                 total_shape_cd_loss += shape_cd_loss
                 total_trans_l2_loss += trans_l2_loss
                 total_rot_l2_loss += rot_l2_loss
                 total_rot_cd_loss += rot_cd_loss
+                total_distractor_loss += distractor_loss
 
     total_loss = res_loss
     total_trans_l2_loss = res_trans_l2_loss
     total_rot_l2_loss = res_rot_l2_loss
     total_rot_cd_loss = res_rot_cd_loss
     total_shape_cd_loss = res_shape_cd_loss
+    total_distractor_loss = res_distractor_loss
 
     data_split = "train"
     if is_val:
@@ -774,7 +783,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--loss_weight_shape_cd", type=float, default=1.0, help="loss weight"
     )
-
+    parser.add_argument(
+        "--loss_weight_distractor", type=float, default=1.0, help="loss weight for distractors"
+    )
     # logging
     parser.add_argument("--no_tb_log", action="store_true", default=False)
     parser.add_argument("--no_console_log", action="store_true", default=False)
