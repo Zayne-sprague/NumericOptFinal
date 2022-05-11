@@ -200,11 +200,13 @@ class Pose_extractor(nn.Module):
         return x
 
 def rand_index(predicted_mask, true_mask):
-    size = list(true_mask.shape)[0]
+    size = true_mask.shape[0]
     denom = size*(torch.sub(size,1))
     predicted_table=torch.matmul(predicted_mask.reshape([size,1]),predicted_mask.unsqueeze(0))
     true_table=torch.matmul(true_mask.reshape([size,1]), true_mask.unsqueeze(0))
-    table=torch.logical_not(torch.logical_xor(predicted_table,true_table))
+    #this version of pytorch used by the researchers doesn't have logical xor or logical not and so I replaced that with this
+    #this works cause conveniently it's binary
+    table=(predicted_table+true_table+1)%2
     return 1-(torch.sum(table)-torch.sum(torch.diagonal(table,0)))/denom
 
                 
@@ -214,17 +216,17 @@ def spectral_cluster(relation_mat):
     relation = torch.diag(relation.sum(dim=0))-relation
     [u,s,vt] = torch.svd(relation)
     labels,_= kmeans(vt,num_clusters=2,distance='euclidean')
-    return labels
+    return labels.float()
 
 def distractor_loss_clustering(relation_mat, valid_parts, distractor_labels):
     #distractor labels should be b x p similar to valid parts 
-    ret=torch.zeros([torch.shape[0],1])
-    for i in range(torch.shape[0]):
+    ret=torch.zeros(relation_mat.shape[0])
+    for i in range(relation_mat.shape[0]):
         num_parts=torch.sum(valid_parts[i])
         new_relation=relation_mat[i][:num_parts,:num_parts]
         #compute cluster mask
         cluster_mask=spectral_cluster(new_relation)
-        ret[i]=rand_index(cluster_mask, distractor_labels)
+        ret[i]=rand_index(cluster_mask, distractor_labels[i,:num_parts])
     return ret
 
 def random_walk(relation_mat, distractor_labels,k):
