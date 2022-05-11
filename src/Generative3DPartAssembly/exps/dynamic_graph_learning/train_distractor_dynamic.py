@@ -476,12 +476,16 @@ def forward(
                 gt_part_poses[:, :, :3],
                 conf.device,
             )
+            
+            #TODO: Incorporate this in not sure how to do it quite yet since the logic seems quite specific
+            distractor_loss=network.get_ditractor_loss() if not conf.distractors else 0
 
             # for each type of loss, compute avg loss per batch
             shape_cd_loss = shape_cd_loss_per_data.mean()
             trans_l2_loss = trans_l2_loss_per_data.mean()
             rot_l2_loss = rot_l2_loss_per_data.mean()
             rot_cd_loss = rot_cd_loss_per_data.mean()
+            distractor_loss = distractor_loss.mean()
             # compute total loss
             if iter_ind == 0:
                 total_loss = (

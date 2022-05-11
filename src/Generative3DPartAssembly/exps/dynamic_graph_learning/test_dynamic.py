@@ -149,6 +149,7 @@ def forward(batch, data_features, network, conf, \
         is_val=False, step=None, epoch=None, batch_ind=0, num_batch=1, start_time=0, \
         log_console=False, log_tb=False, tb_writer=None, lr=None):
     # prepare input
+    output_relation_dict=dict()
     input_part_pcs = torch.cat(batch[data_features.index('part_pcs')], dim=0).to(conf.device)           # B x P x N x 3
     input_part_valids = torch.cat(batch[data_features.index('part_valids')], dim=0).to(conf.device)     # B x P
     input_part_pairs = torch.cat(batch[data_features.index('pairs')], dim=0).to(conf.device)
@@ -197,11 +198,15 @@ def forward(batch, data_features, network, conf, \
 
     for repeat_ind in range(repeat_times):
         # forward through the network
-        total_pred_part_poses = network(conf, input_part_pairs.float(), input_part_valids.float(),
+        [total_pred_part_poses, relation] = network.forward_relation(conf, input_part_pairs.float(), input_part_valids.float(),
                                         input_part_pcs.float(), instance_label, same_class_list)  # B x P x P, B x P, B x P x N x 3
+        # total_pred_part_poses = network.forward(conf, input_part_pairs.float(), input_part_valids.float(),
+        #                                 input_part_pcs.float(), instance_label, same_class_list)  # B x P x P, B x P, B x P x N x 3
 
         # for iter_ind in range(conf.iter):
         pred_part_poses = total_pred_part_poses[conf.iter - 1]
+        output_relation_dict[repeat_ind]=relation
+        #write this to a json file that can be read in later 
         # pred_part_poses = gt_part_poses
         array_pred_part_poses.append(pred_part_poses)
 
@@ -390,7 +395,7 @@ def forward(batch, data_features, network, conf, \
             #     cmd = 'cd %s && python %s . 10 htmls %s %s > /dev/null' % (out_dir, os.path.join(BASE_DIR, '../utils/gen_html_hierarchy_local.py'), sublist, sublist)
             #     call(cmd, shell=True)
             #     utils.printout(conf.flog, 'DONE')
-
+    torch.save(output_relation_dict, 'relation_tensors.pt')
     return total_cd_loss, shape_cd_loss, contact_point_loss, acc_num, valid_num, res_count, total_num
    
    
@@ -417,7 +422,7 @@ if __name__ == '__main__':
     parser.add_argument('--val_data_fn', type=str, help='validation data file that indexs all data tuples', default="../prepare_data/Chair.val.npy")
 
     # main parameters (optional)
-    parser.add_argument('--device', type=str, default='cpu', help='cpu or cuda:x for using cuda on GPU number x')
+    parser.add_argument('--device', type=str, default='cuda:0', help='cpu or cuda:x for using cuda on GPU number x')
     parser.add_argument('--seed', type=int, default=3124256514,
                         help='random seed (for reproducibility) [specify -1 means to generate a random one]')
     # parser.add_argument('--seed', type=int, default=-1, help='random seed (for reproducibility) [specify -1 means to generate a random one]')

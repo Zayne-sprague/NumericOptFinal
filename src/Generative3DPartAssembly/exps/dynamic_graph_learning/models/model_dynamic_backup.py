@@ -302,6 +302,94 @@ class Network(nn.Module):
         return total_pred_poses
 
 
+    def forward_relation(self, conf, relation_matrix, part_valids, part_pcs, instance_label, class_list):
+        batch_size = part_pcs.shape[0]
+        num_part = part_pcs.shape[1]
+        relation_matrix = relation_matrix.double()
+        valid_matrix = copy.copy(relation_matrix)
+        pred_poses = torch.zeros((batch_size, num_part, 7)).to(conf.device)
+        total_pred_poses = []
+        # obtain per-part feature
+        part_feats = self.mlp2(part_pcs.view(batch_size * num_part, -1, 3)).view(batch_size, num_part, -1)  # output: B x P x F
+        local_feats = part_feats
+        random_noise = np.random.normal(loc=0.0, scale=1.0, size=[batch_size, num_part, 16]).astype(
+            np.float32)  # B x P x 16
+        random_noise = torch.tensor(random_noise).to(self.conf.device)  # B x P x 16
+        
+        for iter_ind in range(self.conf.iter):
+            # adjust relations
+            if iter_ind >= 1 :
+                cur_poses = copy.copy(pred_poses).double()            
+                pose_feat = self.pose_extractor(cur_poses.float())
+                if iter_ind % 2 == 1: 
+                    for i in range(batch_size):
+                        for j in range(len(class_list[i])):
+                            cur_pose_feats = pose_feat[i,class_list[i][j]]
+                            cur_pose_feat = cur_pose_feats.max(dim = -2)[0] 
+                            pose_feat[i,class_list[i][j]]=cur_pose_feat
+                            part_feats_copy = copy.copy(part_feats)
+                            with torch.no_grad():
+                                part_feats_copy[i,class_list[i][j]] = part_feats_copy[i, class_list[i][j]].max(dim = -2)[0]
+
+                pose_featA = pose_feat.unsqueeze(1).repeat(1,num_part,1,1)
+                pose_featB = pose_feat.unsqueeze(2).repeat(1,1,num_part,1)
+                input_relation = torch.cat([pose_featA,pose_featB],dim = -1).float()
+                if iter_ind % 2 == 0:
+                    new_relation = self.relation_predictor_dense(input_relation.view(batch_size,-1,256)).view(batch_size,num_part,num_part)
+                elif iter_ind % 2 == 1:
+                    new_relation = self.relation_predictor(input_relation.view(batch_size,-1,256)).view(batch_size,num_part,num_part)
+                relation_matrix = new_relation.double() * valid_matrix 
+            # mlp3
+            if iter_ind>=1 and iter_ind%2==1: 
+                part_feat1 = part_feats_copy.unsqueeze(2).repeat(1, 1, num_part, 1) # B x P x P x F
+                part_feat2 = part_feats_copy.unsqueeze(1).repeat(1, num_part, 1, 1) # B x P x P x F
+            else:
+                part_feat1 = part_feats.unsqueeze(2).repeat(1, 1, num_part, 1) # B x P x P x F
+                part_feat2 = part_feats.unsqueeze(1).repeat(1, num_part, 1, 1) # B x P x P x F
+            input_3 = torch.cat([part_feat1, part_feat2], dim=-1) # B x P x P x 2F
+            if iter_ind == 0:
+                mlp3 = self.mlp3_1
+                mlp4 = self.mlp4_1
+                mlp5 = self.mlp5_1
+            elif iter_ind == 1:
+                mlp3 = self.mlp3_2
+                mlp4 = self.mlp4_2
+                mlp5 = self.mlp5_2
+            elif iter_ind == 2:
+                mlp3 = self.mlp3_3
+                mlp4 = self.mlp4_3
+                mlp5 = self.mlp5_3
+            elif iter_ind == 3:
+                mlp3 = self.mlp3_4
+                mlp4 = self.mlp4_4
+                mlp5 = self.mlp5_4
+            elif iter_ind == 4:
+                mlp3 = self.mlp3_5
+                mlp4 = self.mlp4_5
+                mlp5 = self.mlp5_5
+            # for the pair of parts (A, B), A is the query one, A is about the row, A is the former in part_feats
+            part_relation = mlp3(input_3.view(batch_size * num_part, num_part, -1)).view(batch_size, num_part,
+                                     num_part, -1) # B x P x P x F
+
+            # pooling
+            part_message = part_relation.double() * relation_matrix.unsqueeze(3).double() # B x P x P x F
+            part_message = part_message.sum(dim=2) # B x P x F
+            norm = relation_matrix.sum(dim=-1) # B x P
+            delta = 1e-6
+            normed_part_message = part_message / (norm.unsqueeze(dim=2) + delta) # B x P x F
+
+            # mlp4
+            input_4 = torch.cat([normed_part_message.double(), part_feats.double()], dim=-1) # B x P x 2F
+            part_feats= mlp4(input_4.float()) # B x P x F
+            
+            # mlp5
+            input_5 = torch.cat([local_feats, part_feats.float(), instance_label, pred_poses, random_noise],dim=-1)
+            pred_poses = mlp5(input_5.float())
+
+            # save poses 
+            total_pred_poses.append(pred_poses)
+
+        return [total_pred_poses, relation_matrix]
     """
             Input: * x N x 3, * x 3, * x 4, * x 3, * x 4,
             Output: *, *  (two lists)

@@ -11,11 +11,13 @@
 
 import numpy as np
 import torch
-from torch import nn
+from torch import dist, nn
 import torch.nn.functional as F
 import sys, os
 import ipdb
 import copy
+from kmeans_pytorch import kmeans
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(BASE_DIR, '../utils'))
 
@@ -196,6 +198,53 @@ class Pose_extractor(nn.Module):
         x = torch.relu(self.mlp1(x)) 
         x = torch.relu(self.mlp2(x)) 
         return x
+
+def rand_index(predicted_mask, true_mask):
+    size = list(true_mask.shape)[0]
+    denom = size*(torch.sub(size,1))
+    predicted_table=torch.matmul(predicted_mask.reshape([size,1]),predicted_mask.unsqueeze(0))
+    true_table=torch.matmul(true_mask.reshape([size,1]), true_mask.unsqueeze(0))
+    table=torch.logical_not(torch.logical_xor(predicted_table,true_table))
+    return 1-(torch.sum(table)-torch.sum(torch.diagonal(table,0)))/denom
+
+                
+def spectral_cluster(relation_mat):
+    relation = (relation_mat+relation_mat.t())/2
+    relation=relation-torch.diag(torch.diag(relation))
+    relation = torch.diag(relation.sum(dim=0))-relation
+    [u,s,vt] = torch.svd(relation)
+    labels,_= kmeans(vt,num_clusters=2,distance='euclidean')
+    return labels
+
+def distractor_loss_clustering(relation_mat, valid_parts, distractor_labels):
+    #distractor labels should be b x p similar to valid parts 
+    ret=torch.zeros([torch.shape[0],1])
+    for i in range(torch.shape[0]):
+        num_parts=torch.sum(valid_parts[i])
+        new_relation=relation_mat[i][:num_parts,:num_parts]
+        #compute cluster mask
+        cluster_mask=spectral_cluster(new_relation)
+        ret[i]=rand_index(cluster_mask, distractor_labels)
+    return ret
+
+def random_walk(relation_mat, distractor_labels,k):
+    distribution=distractor_labels/torch.sum(distractor_labels)
+    #want to compute n iterations of iterations
+    #convert relation mat to transition matrix
+    T=torch.nn.functional.normalize(relation_mat,p=1,dim=1)
+    return torch.matmul(distribution,torch.matrix_power(T,k))
+    
+def distractor_loss_walk(relation_mat, valid_parts, distractor_labels, iterations):
+    #want to a bunch of random walks with k time steps and penalize based on the p(not distractor point | initial start at distractor)
+    #initial distribution should be bxp where it's 1/(num distractors) in place of distractor
+    ret=torch.zeros([relation_mat.shape[0],1])
+    for i in range(relation_mat.shape[0]):
+        num_parts=torch.sum(valid_parts[i])
+        new_relation=relation_mat[i][:num_parts,:num_parts]
+        walk = random_walk(new_relation, distractor_labels[i,:num_parts],iterations)
+        #compute loss of this walk so want the sum of distractor points to be as large as possible
+        ret[i]=1-(torch.sum(torch.mul(walk, distractor_labels[i,:num_parts])))
+    return ret
 
 class Network(nn.Module):
 
@@ -407,6 +456,9 @@ class Network(nn.Module):
         
         loss_per_data = loss_per_data.to(device)
         return loss_per_data
+    
+    def get_distractor_loss(self, relation, valid_parts,distractors, iterations):
+        return distractor_loss_clustering(relation,valid_parts,distractors) + distractor_loss_walk(relation,valid_parts,distractors,iterations)
 
         """
             output : B
