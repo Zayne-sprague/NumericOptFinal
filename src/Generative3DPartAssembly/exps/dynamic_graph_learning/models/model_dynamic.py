@@ -211,11 +211,17 @@ def rand_index(predicted_mask, true_mask):
 
                 
 def spectral_cluster(relation_mat):
-    relation = (relation_mat+relation_mat.t())/2
+    relation = (relation_mat.t()*relation_mat)
     relation=relation-torch.diag(torch.diag(relation))
     relation = torch.diag(relation.sum(dim=0))-relation
-    [u,s,vt] = torch.svd(relation)
-    labels,_= kmeans(vt,num_clusters=2,distance='euclidean')
+    #all real valued and is a psd since A=xt*x => psd
+    vals, vecs = torch.eig(relation, eigenvectors=True)        
+    vals=vals[:,0].squeeze()
+    _,idx=torch.sort(vals, descending=True)
+    vecs=vecs[idx,:]
+    labels,_= kmeans(vecs,num_clusters=2,distance='euclidean')
+    #need to map the label back to where they were initially based on idx
+    labels=labels.gather(0,idx.argsort(0))
     return labels.float()
 
 def distractor_loss_clustering(relation_mat, valid_parts, distractor_labels):
