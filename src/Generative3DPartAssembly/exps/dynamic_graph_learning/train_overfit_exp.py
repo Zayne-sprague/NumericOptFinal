@@ -845,6 +845,15 @@ if __name__ == "__main__":
         default=False,
         help="overwrite if exp_dir exists [default: False]",
     )
+
+    parser.add_argument(
+        "--spectral_on",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--random_walk_on",
+        action="store_true",
+    )
     parser.add_argument("--level", type=str, default="3", help="level of dataset")
 
     # network settings
@@ -920,65 +929,66 @@ if __name__ == "__main__":
         f"exp-{conf.category}-{conf.model_version}-level{conf.level}{conf.exp_suffix}"
     )
 
-    # mkdir exp_dir; ask for overwrite if necessary
-    conf.exp_dir = os.path.join(conf.log_dir, conf.exp_name)
-    if not os.path.exists(conf.log_dir):
-        os.mkdir(conf.log_dir)
-    if os.path.exists(conf.exp_dir):
-        if not conf.overwrite:
-            response = input(
-                'A training run named "%s" already exists, overwrite? (y/n) '
-                % conf.exp_name
-            )
-            if response != "y":
-                exit(1)
-        shutil.rmtree(conf.exp_dir)
-    os.mkdir(conf.exp_dir)
-    os.mkdir(os.path.join(conf.exp_dir, "ckpts"))
-    if not conf.no_visu:
-        os.mkdir(os.path.join(conf.exp_dir, "val_visu"))
-
-    # control randomness
-    if conf.seed < 0:
-        conf.seed = random.randint(1, 10000)
-    random.seed(conf.seed)
-    np.random.seed(conf.seed)
-    torch.manual_seed(conf.seed)
-
-    # save config
-    torch.save(conf, os.path.join(conf.exp_dir, "conf.pth"))
-
-    # file log
-    flog = open(os.path.join(conf.exp_dir, "train_log.txt"), "w")
-    conf.flog = flog
-
-    # backup command running
-    utils.printout(flog, " ".join(sys.argv) + "\n")
-    utils.printout(flog, f"Random Seed: {conf.seed}")
-
-    # backup python files used for this training
-    os.system(
-        "cp data_dynamic.py models/%s.py %s %s"
-        % (conf.model_version, __file__, conf.exp_dir)
-    )
-
-    # set training device
-    device = torch.device(conf.device)
-    utils.printout(flog, f"Using device: {conf.device}\n")
-    conf.device = device
-
     ### start training
     experiments = [
-        {'training_distractor_file': conf.training_data_file, 'exp_suffix': 'same_training_file_d5'},
-        {'training_distractor_file': conf.training_distractor_file, 'exp_suffix': 'diff_training_file_d5'},
-        {'max_distractor_num_part': 20, 'exp_suffix': 'd20'},
-        {'spectral_on': False, 'random_walk_on': True, 'exp_suffix': 'only_rw'},
-        {'random_walk_on': False, 'spectral_on': True, 'exp_suffix': 'only_sg'}
+        {'training_distractor_file': conf.training_data_file, 'exp_name': 'same_training_file_d5'},
+        {'training_distractor_file': conf.training_distractor_file, 'exp_name': 'diff_training_file_d5'},
+        {'max_distractor_num_part': 20, 'exp_name': 'd20'},
+        {'spectral_on': False, 'random_walk_on': True, 'exp_name': 'only_rw'},
+        {'random_walk_on': False, 'spectral_on': True, 'exp_name': 'only_sg'}
     ]
 
     for exp in experiments:
         for (k, v) in exp.items():
             conf.__setattr__(k,v)
+
+        # mkdir exp_dir; ask for overwrite if necessary
+        conf.exp_dir = os.path.join(conf.log_dir, conf.exp_name)
+        if not os.path.exists(conf.log_dir):
+            os.mkdir(conf.log_dir)
+        if os.path.exists(conf.exp_dir):
+            if not conf.overwrite:
+                response = input(
+                    'A training run named "%s" already exists, overwrite? (y/n) '
+                    % conf.exp_name
+                )
+                if response != "y":
+                    exit(1)
+            shutil.rmtree(conf.exp_dir)
+        os.mkdir(conf.exp_dir)
+        os.mkdir(os.path.join(conf.exp_dir, "ckpts"))
+        if not conf.no_visu:
+            os.mkdir(os.path.join(conf.exp_dir, "val_visu"))
+
+        # control randomness
+        if conf.seed < 0:
+            conf.seed = random.randint(1, 10000)
+        random.seed(conf.seed)
+        np.random.seed(conf.seed)
+        torch.manual_seed(conf.seed)
+
+        # save config
+        torch.save(conf, os.path.join(conf.exp_dir, "conf.pth"))
+
+        # file log
+        flog = open(os.path.join(conf.exp_dir, "train_log.txt"), "w")
+        conf.flog = flog
+
+        # backup command running
+        utils.printout(flog, " ".join(sys.argv) + "\n")
+        utils.printout(flog, f"Random Seed: {conf.seed}")
+
+        # backup python files used for this training
+        os.system(
+            "cp data_dynamic.py models/%s.py %s %s"
+            % (conf.model_version, __file__, conf.exp_dir)
+        )
+
+        # set training device
+        device = torch.device(conf.device)
+        utils.printout(flog, f"Using device: {conf.device}\n")
+        conf.device = device
+
         train(conf)
 
     ### before quit
