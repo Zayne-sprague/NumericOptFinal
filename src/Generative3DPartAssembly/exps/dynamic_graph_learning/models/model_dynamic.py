@@ -203,14 +203,14 @@ def rand_index(predicted_mask, true_mask):
     size = true_mask.shape[0]
     denom = size*(torch.sub(size,1))
     predicted_table=torch.matmul(predicted_mask.reshape([size,1]),predicted_mask.unsqueeze(0))
-    true_table=torch.matmul(true_mask.reshape([size,1]), true_mask.unsqueeze(0))
+    true_table=torch.matmul(true_mask.reshape([size,1]).float(), true_mask.unsqueeze(0).float())
     #this version of pytorch used by the researchers doesn't have logical xor or logical not and so I replaced that with this
     #this works cause conveniently it's binary
     table=(predicted_table+true_table+1)%2
-    return 1-(torch.sum(table)-torch.sum(torch.diagonal(table,0)))/denom
+    return 1-(torch.sum(table)-torch.sum(torch.diagonal(table,0))).float()/denom.float()
 
                 
-def spectral_cluster(relation_mat):
+def spectral_cluster(relation_mat, conf):
     relation = (relation_mat.t()*relation_mat)
     relation=relation-torch.diag(torch.diag(relation))
     relation = torch.diag(relation.sum(dim=0))-relation
@@ -220,18 +220,20 @@ def spectral_cluster(relation_mat):
     _,idx=torch.sort(vals, descending=True)
     vecs=vecs[idx,:]
     labels,_= kmeans(vecs,num_clusters=2,distance='euclidean')
+    labels = labels.to(conf.device)
+    labels = labels.float()
     #need to map the label back to where they were initially based on idx
-    labels=labels.gather(0,idx.argsort(0))
-    return labels.float()
+    labels=labels.gather(0,idx.argsort(0)).to(conf.device)
+    return labels
 
-def distractor_loss_clustering(relation_mat, valid_parts, distractor_labels):
+def distractor_loss_clustering(relation_mat, valid_parts, distractor_labels, conf):
     #distractor labels should be b x p similar to valid parts 
     ret=torch.zeros(relation_mat.shape[0])
     for i in range(relation_mat.shape[0]):
         num_parts = int(torch.sum(valid_parts[i]).item())
         new_relation = relation_mat[i][:num_parts,:num_parts]
         #compute cluster mask
-        cluster_mask = spectral_cluster(new_relation)
+        cluster_mask = spectral_cluster(new_relation, conf)
         ret[i] = rand_index(cluster_mask, distractor_labels[i,:num_parts])
     return ret
 
@@ -242,16 +244,16 @@ def random_walk(relation_mat, distractor_labels,k):
     T=torch.nn.functional.normalize(relation_mat,p=1,dim=1)
     return torch.matmul(distribution.float(),torch.matrix_power(T,k).float())
     
-def distractor_loss_walk(relation_mat, valid_parts, distractor_labels, iterations):
+def distractor_loss_walk(relation_mat, valid_parts, distractor_labels, iterations, conf):
     #want to a bunch of random walks with k time steps and penalize based on the p(not distractor point | initial start at distractor)
     #initial distribution should be bxp where it's 1/(num distractors) in place of distractor
-    ret=torch.zeros([relation_mat.shape[0],1])
+    ret=torch.zeros([relation_mat.shape[0],1]).to(conf.device).float()
     for i in range(relation_mat.shape[0]):
         num_parts = int(torch.sum(valid_parts[i]).item())
         new_relation = relation_mat[i][:num_parts,:num_parts]
-        walk = random_walk(new_relation, distractor_labels[i,:num_parts],iterations)
+        walk = random_walk(new_relation, distractor_labels[i,:num_parts],iterations).to(conf.device)
         #compute loss of this walk so want the sum of distractor points to be as large as possible
-        ret[i] = 1-(torch.sum(torch.mul(walk, distractor_labels[i,:num_parts])))
+        ret[i] = (1-(torch.sum(torch.mul(walk.float(), distractor_labels[i,:num_parts].float())))).to(conf.device)
     return ret
 
 class Network(nn.Module):
@@ -541,8 +543,8 @@ class Network(nn.Module):
         loss_per_data = loss_per_data.to(device)
         return loss_per_data
     
-    def get_distractor_loss(self, relation, valid_parts, distractors, iterations):
-        return distractor_loss_clustering(relation,valid_parts,distractors) + distractor_loss_walk(relation,valid_parts,distractors,iterations)
+    def get_distractor_loss(self, relation, valid_parts, distractors, iterations, conf):
+        return distractor_loss_clustering(relation,valid_parts,distractors, conf).to(conf.device) + distractor_loss_walk(relation,valid_parts,distractors,iterations, conf).to(conf.device)
 
         """
             output : B

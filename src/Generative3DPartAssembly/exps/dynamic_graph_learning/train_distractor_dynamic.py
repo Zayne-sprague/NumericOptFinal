@@ -165,10 +165,10 @@ def train(conf):
         val_batch_ind = -1
         val_flag = 0  # to record whether it is the first time
 
-        sum_total_trans_l2_loss = torch.tensor(0.)
-        sum_total_rot_l2_loss = torch.tensor(0.)
-        sum_total_rot_cd_loss = torch.tensor(0.)
-        sum_total_shape_cd_loss = torch.tensor(0.)
+        sum_total_trans_l2_loss = torch.tensor(0.).to(conf.device)
+        sum_total_rot_l2_loss = torch.tensor(0.).to(conf.device)
+        sum_total_rot_cd_loss = torch.tensor(0.).to(conf.device)
+        sum_total_shape_cd_loss = torch.tensor(0.).to(conf.device)
 
         # train for every batch
         for train_batch_ind, batch in train_batches:
@@ -419,12 +419,12 @@ def forward(
     #
     distractor_train_type = conf.distractor_train_type
 
-    best_loss = torch.tensor(0).float()
-    best_trans_l2_loss = torch.tensor(0).float()
-    best_rot_l2_loss = torch.tensor(0).float()
-    best_rot_cd_loss = torch.tensor(0).float()
-    best_shape_cd_loss = torch.tensor(0).float()
-    best_distractor_loss = torch.tensor(0).float()
+    best_loss = torch.tensor(0).float().to(conf.device)
+    best_trans_l2_loss = torch.tensor(0).float().to(conf.device)
+    best_rot_l2_loss = torch.tensor(0).float().to(conf.device)
+    best_rot_cd_loss = torch.tensor(0).float().to(conf.device)
+    best_shape_cd_loss = torch.tensor(0).float().to(conf.device)
+    best_distractor_loss = torch.tensor(0).float().to(conf.device)
 
     repeat_times = 5
     for repeat_ind in range(repeat_times):
@@ -437,12 +437,12 @@ def forward(
             same_class_list,
         )  # B x P x P, B x P, B x P x N x 3
 
-        total_loss = torch.tensor(0).float()
-        total_trans_l2_loss = torch.tensor(0).float()
-        total_rot_l2_loss = torch.tensor(0).float()
-        total_rot_cd_loss = torch.tensor(0).float()
-        total_shape_cd_loss = torch.tensor(0).float()
-        total_distractor_loss = torch.tensor(0).float()
+        total_loss = torch.tensor(0).float().to(conf.device)
+        total_trans_l2_loss = torch.tensor(0).float().to(conf.device)
+        total_rot_l2_loss = torch.tensor(0).float().to(conf.device)
+        total_rot_cd_loss = torch.tensor(0).float().to(conf.device)
+        total_shape_cd_loss = torch.tensor(0).float().to(conf.device)
+        total_distractor_loss = torch.tensor(0).float().to(conf.device)
 
         for iter_ind in range(conf.iter):
             pred_part_poses = total_pred_part_poses[iter_ind]
@@ -485,7 +485,7 @@ def forward(
             # for each type of loss, compute losses per data
 
             # TODO: Incorporate this in not sure how to do it quite yet since the logic seems quite specific
-            distractor_loss = network.get_distractor_loss(relation_matrix, input_part_valids, distractor_labels, 20).mean()
+            distractor_loss = network.get_distractor_loss(relation_matrix, input_part_valids, distractor_labels, 20, conf).mean()
 
             if distractor_train_type == 'separate':
                 gold_selective_indices = distractor_labels == 0
@@ -600,11 +600,9 @@ def forward(
 
         # gen visu
         if (
-            True or (
-                is_val
-                and (not conf.no_visu)
-                and epoch % conf.num_epoch_every_visu == conf.num_epoch_every_visu - 1
-            )
+            is_val
+            and (not conf.no_visu)
+            and epoch % conf.num_epoch_every_visu == conf.num_epoch_every_visu - 1
         ):
             visu_dir = os.path.join(conf.exp_dir, "val_visu")
             out_dir = os.path.join(visu_dir, "epoch-%04d" % epoch)
