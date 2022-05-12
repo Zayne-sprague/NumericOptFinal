@@ -152,6 +152,7 @@ def train(conf):
     val_num_batch = len(val_dataloader)
 
     # train for every epoch
+    out_dict=dict()
     for epoch in range(conf.epochs):
         if not conf.no_console_log:
             utils.printout(conf.flog, f"training run {conf.exp_name}")
@@ -195,7 +196,8 @@ def train(conf):
                 total_rot_l2_loss,
                 total_rot_cd_loss,
                 total_shape_cd_loss,
-                total_distractor_loss
+                total_distractor_loss,
+                write_dict
             ) = forward(
                 batch=batch,
                 data_features=data_features,
@@ -212,7 +214,7 @@ def train(conf):
                 tb_writer=train_writer,
                 lr=network_opt.param_groups[0]["lr"],
             )
-
+            out_dict.update(write_dict)
             # to sum the training loss of all categories
             if train_batch_ind == 0:
                 sum_total_trans_l2_loss = total_trans_l2_loss
@@ -280,7 +282,8 @@ def train(conf):
                         total_rot_l2_loss,
                         total_rot_cd_loss,
                         total_shape_cd_loss,
-                        total_distractor_loss
+                        total_distractor_loss,
+                        _
                     ) = forward(
                         batch=val_batch,
                         data_features=data_features,
@@ -295,7 +298,7 @@ def train(conf):
                         log_console=log_console,
                         log_tb=not conf.no_tb_log,
                         tb_writer=val_writer,
-                        lr=network_opt.param_groups[0]["lr"],
+                        lr=network_opt.param_groups[0]["lr"]
                     )
                     # to sum the validating loss of all categories
                     if val_flag == 0:
@@ -351,6 +354,9 @@ def train(conf):
         optimizers=optimizers,
         optimizer_names=optimizer_names,
     )
+    import json
+    with open("relations_distractor_train.json","w") as out:
+        json.dump(write_dict,out)
     utils.printout(conf.flog, "DONE")
 
 
@@ -426,7 +432,7 @@ def forward(
     best_shape_cd_loss = torch.tensor(0).float().to(conf.device)
     best_distractor_loss = torch.tensor(0).float().to(conf.device)
 
-    repeat_times = 5
+    repeat_times = 3
     write_dict=dict()
     key="{0} {1} {2} {3}"
     distractor_key="{0} {1} {2} {3} distractors"
@@ -729,16 +735,14 @@ def forward(
                 )
                 call(cmd, shell=True)
                 utils.printout(conf.flog, "DONE")
-    import json
-    with open("relations_distractor_train.json","w") as out:
-        json.dump(write_dict)
     return (
         best_loss,
         best_trans_l2_loss,
         best_rot_l2_loss,
         best_rot_cd_loss,
         best_shape_cd_loss,
-        best_distractor_loss
+        best_distractor_loss,
+        write_dict
     )
 
 
@@ -916,6 +920,16 @@ if __name__ == "__main__":
         action="store_true",
         default=False,
         help="no visu? [default: False]",
+    )
+    parser.add_argument(
+        "--spectral_on",
+        action="store_true",
+        default=False
+    )
+    parser.add_argument(
+        "--random_walk_on",
+        action="store_true",
+        default=False
     )
 
     # parse args

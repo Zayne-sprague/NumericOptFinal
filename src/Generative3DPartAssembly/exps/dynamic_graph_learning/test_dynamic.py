@@ -16,7 +16,9 @@ import torch.nn.functional as F
 torch.multiprocessing.set_sharing_strategy('file_system')
 from PIL import Image
 from subprocess import call
-from data_dynamic import PartNetPartDataset
+#from data_dynamic import PartNetPartDataset
+from src.datasets.partnet_dataset import PartNetDataset
+from src.datasets.partnet_distractor_dataset import PartNetDistractorDataset
 import utils
 import render_using_blender as render_utils
 from quaternion import qrot
@@ -31,15 +33,39 @@ def test(conf):
     # data_features = ['part_pcs', 'part_poses', 'part_valids', 'shape_id', 'part_ids', 'match_ids', 'contact_points']
     # data_features = ['part_pcs', 'part_poses', 'part_valids', 'shape_id', 'part_ids', 'match_ids', 'pairs']
 
-    val_dataset = PartNetPartDataset(conf.category, conf.data_dir, conf.val_data_fn, data_features, \
-                                     max_num_part=20, level=conf.level)
+    #val_dataset = PartNetPartDataset(conf.category, conf.data_dir, conf.val_data_fn, data_features, \
+    #                                 max_num_part=20, level=conf.level)
     #utils.printout(conf.flog, str(val_dataset))
-    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=conf.batch_size, shuffle=False,
-                                                 pin_memory=True, \
-                                                 num_workers=0, drop_last=True,
-                                                 collate_fn=utils.collate_feats_with_none,
-                                                 worker_init_fn=utils.worker_init_fn)
     
+    #start of the distractor code
+    val_dataset = PartNetDataset(
+        category=conf.category,
+        data_file='src/data/Chair.val.npy',
+        level=conf.level,
+        data_features=data_features,
+        max_num_part=conf.max_num_part,
+    )
+    val_distractor_dataset = PartNetDataset(
+        category=conf.category,
+        data_file='src/data/Lamp.val.npy',
+        level=conf.level,
+        data_features=data_features,
+        max_num_part=3,
+    )
+    val_dataset = PartNetDistractorDataset(
+        training_dataset=val_dataset, distractor_dataset=val_distractor_dataset
+    )
+    val_dataloader = torch.utils.data.DataLoader(
+        val_dataset,
+        batch_size=conf.batch_size,
+        shuffle=False,
+        pin_memory=True,
+        num_workers=0,
+        drop_last=True,
+        collate_fn=utils.collate_feats_with_none,
+        worker_init_fn=utils.worker_init_fn,
+    )
+    #end of the distractor code
     model_def = utils.get_model_module(conf.model_version)
     network = model_def.Network(conf)
     network.load_state_dict(torch.load(conf.model_dir))
@@ -205,7 +231,11 @@ def forward(batch, data_features, network, conf, \
 
         # for iter_ind in range(conf.iter):
         pred_part_poses = total_pred_part_poses[conf.iter - 1]
-        output_relation_dict[repeat_ind]=relation
+        string = "{0} {1}"
+        for i in range(input_part_valids.shape[0]):
+            valids = sum(input_part_valids[i]).int()
+            output_relation_dict[string.format(repeat_ind, i)]=relation[i][:valids,:valids].cpu().detach().numpy().tolist()
+
         #write this to a json file that can be read in later 
         # pred_part_poses = gt_part_poses
         array_pred_part_poses.append(pred_part_poses)
@@ -395,7 +425,9 @@ def forward(batch, data_features, network, conf, \
             #     cmd = 'cd %s && python %s . 10 htmls %s %s > /dev/null' % (out_dir, os.path.join(BASE_DIR, '../utils/gen_html_hierarchy_local.py'), sublist, sublist)
             #     call(cmd, shell=True)
             #     utils.printout(conf.flog, 'DONE')
-    torch.save(output_relation_dict, 'relation_tensors.pt')
+    import json
+    with open('relation_tensors_distractors.json','w')as out:
+        json.dump(output_relation_dict,out)
     return total_cd_loss, shape_cd_loss, contact_point_loss, acc_num, valid_num, res_count, total_num
    
    
