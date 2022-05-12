@@ -428,7 +428,8 @@ def forward(
 
     repeat_times = 5
     write_dict=dict()
-    key="{0} {1} {2}"
+    key="{0} {1} {2} {3}"
+    distractor_key="{0} {1} {2} {3} distractors"
     for repeat_ind in range(repeat_times):
         total_pred_part_poses, relation_matrix = network(
             conf,
@@ -491,7 +492,8 @@ def forward(
             if not iter_ind % repeat_times:
                 for i in range(input_part_valids.shape[0]):
                     valids = sum(input_part_valids[i]).int()
-                    write_dict[key.format(repeat_ind,iter_ind,i)]=relation_matrix[i][:valids,:valids].cpu().detach().numpy().tolist()
+                    write_dict[key.format(epoch, repeat_ind,iter_ind,i)]=relation_matrix[i][:valids,:valids].cpu().detach().numpy().tolist()
+                    write_dict[distractor_key.format(epoch, repeat_ind,iter_ind,i)]=distractor_labels[i][:valids].cpu().detach().numpy().tolist()
             distractor_loss = network.get_distractor_loss(relation_matrix, input_part_valids, distractor_labels, 20, conf).mean()
 
             if distractor_train_type == 'separate':
@@ -804,7 +806,7 @@ if __name__ == "__main__":
     parser = ArgumentParser()
 
     # main parameters (required)
-    parser.add_argument("--exp_suffix", type=str, help="exp suffix")
+    parser.add_argument("--exp_suffix", default='',type=str, help="exp suffix")
     parser.add_argument("--model_version", type=str, help="model def file")
     parser.add_argument("--category", type=str, help="model def file")
     # parser.add_argument('--train_data_fn', type=str, help='training data file that indexs all data tuples')
