@@ -16,7 +16,7 @@ import torch.nn.functional as F
 import sys, os
 import ipdb
 import copy
-from kmeans_pytorch import kmeans
+from src.kmeans import kmeans
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(BASE_DIR, '../utils'))

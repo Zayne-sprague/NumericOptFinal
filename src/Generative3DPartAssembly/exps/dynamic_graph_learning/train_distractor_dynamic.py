@@ -13,6 +13,7 @@ import numpy as np
 import torch
 import torch.utils.data
 import torch.nn.functional as F
+from pathlib import Path
 
 torch.multiprocessing.set_sharing_strategy("file_system")
 from subprocess import call
@@ -599,9 +600,11 @@ def forward(
 
         # gen visu
         if (
-            is_val
-            and (not conf.no_visu)
-            and epoch % conf.num_epoch_every_visu == conf.num_epoch_every_visu - 1
+            True or (
+                is_val
+                and (not conf.no_visu)
+                and epoch % conf.num_epoch_every_visu == conf.num_epoch_every_visu - 1
+            )
         ):
             visu_dir = os.path.join(conf.exp_dir, "val_visu")
             out_dir = os.path.join(visu_dir, "epoch-%04d" % epoch)
@@ -612,32 +615,34 @@ def forward(
 
             if batch_ind == 0:
                 # create folders
-                os.mkdir(out_dir)
-                os.mkdir(input_part_pcs_dir)
-                os.mkdir(gt_assembly_dir)
-                os.mkdir(pred_assembly_dir)
-                os.mkdir(info_dir)
+                Path(out_dir).mkdir(parents=True, exist_ok=True)
+                Path(input_part_pcs_dir).mkdir(parents=True, exist_ok=True)
+                Path(gt_assembly_dir).mkdir(parents=True, exist_ok=True)
+                Path(pred_assembly_dir).mkdir(parents=True, exist_ok=True)
+                Path(info_dir).mkdir(parents=True, exist_ok=True)
 
             if batch_ind < conf.num_batch_every_visu:
+                selective_indices = distractor_labels == 0
+
                 utils.printout(conf.flog, "Visualizing ...")
-                pred_center = pred_part_poses[:, distractor_labels == 0, :3]
-                gt_center = gt_part_poses[:, distractor_labels == 0, :3]
+                pred_center = pred_part_poses[selective_indices, :].view(batch_size, -1, pred_part_poses.shape[-1])[:, :, 0:3]
+                gt_center = gt_part_poses[selective_indices, :].view(batch_size, -1, gt_part_poses.shape[-1])[:, :, 0:3]
 
                 # compute pred_pts and gt_pts
 
                 pred_pts = (
                     qrot(
-                        pred_part_poses[:, distractor_labels == 0, 3:]
+                        pred_part_poses[selective_indices, :].view(batch_size, -1, pred_part_poses.shape[-1])[:,:,3:]
                         .unsqueeze(2)
                         .repeat(1, 1, num_point, 1),
-                        input_part_pcs,
+                        input_part_pcs[selective_indices, :, :].view(batch_size, -1, input_part_pcs.shape[-2], input_part_pcs.shape[-1]),
                     )
                     + pred_center.unsqueeze(2).repeat(1, 1, num_point, 1)
                 )
                 gt_pts = (
                     qrot(
-                        gt_part_poses[:, distractor_labels == 0, 3:].unsqueeze(2).repeat(1, 1, num_point, 1),
-                        input_part_pcs,
+                        gt_part_poses[selective_indices, :].view(batch_size, -1, gt_part_poses.shape[-1])[:,:,3:].unsqueeze(2).repeat(1, 1, num_point, 1),
+                        input_part_pcs[selective_indices, :, :].view(batch_size, -1, input_part_pcs.shape[-2], input_part_pcs.shape[-1]),
                     )
                     + gt_center.unsqueeze(2).repeat(1, 1, num_point, 1)
                 )
@@ -645,11 +650,11 @@ def forward(
                 for i in range(batch_size):
                     fn = "data-%03d.png" % (batch_ind * batch_size + i)
 
-                    cur_input_part_cnt = input_part_valids[i].sum().item()
+                    cur_input_part_cnt = input_part_valids[i, selective_indices[i]].sum().item()
                     cur_input_part_cnt = int(cur_input_part_cnt)
-                    cur_input_part_pcs = input_part_pcs[i, :cur_input_part_cnt]
-                    cur_gt_part_poses = gt_part_poses[i, :cur_input_part_cnt]
-                    cur_pred_part_poses = pred_part_poses[i, :cur_input_part_cnt]
+                    cur_input_part_pcs = input_part_pcs[i, selective_indices[i]][:cur_input_part_cnt]
+                    cur_gt_part_poses = gt_part_poses[i, selective_indices[i]][:cur_input_part_cnt]
+                    cur_pred_part_poses = pred_part_poses[i, selective_indices[i]][:cur_input_part_cnt]
 
                     pred_part_pcs = (
                         qrot(
@@ -695,14 +700,15 @@ def forward(
                         os.path.join(info_dir, fn.replace(".png", ".txt")), "w"
                     ) as fout:
                         fout.write(
-                            "shape_id: %s\n" % batch[data_features.index("shape_id")][i]
+                            "shape_id: %s\n" % " | ".join([str(x) for x in batch[data_features.index("shape_id")][i]])
                         )
                         fout.write("num_part: %d\n" % cur_input_part_cnt)
-                        fout.write(
-                            "trans_l2_loss: %f\n" % trans_l2_loss_per_data[i].item()
-                        )
-                        fout.write("rot_l2_loss: %f\n" % rot_l2_loss_per_data[i].item())
-                        fout.write("rot_cd_loss: %f\n" % rot_cd_loss_per_data[i].item())
+                        # TODO - would be nice to implement this
+                        # fout.write(
+                        #     "trans_l2_loss: %f\n" % trans_l2_loss_per_data[i].item()
+                        # )
+                        # fout.write("rot_l2_loss: %f\n" % rot_l2_loss_per_data[i].item())
+                        # fout.write("rot_cd_loss: %f\n" % rot_cd_loss_per_data[i].item())
 
             if batch_ind == conf.num_batch_every_visu - 1:
                 # visu html
@@ -718,12 +724,12 @@ def forward(
                 utils.printout(conf.flog, "DONE")
 
     return (
-        total_loss,
-        total_trans_l2_loss,
-        total_rot_l2_loss,
-        total_rot_cd_loss,
-        total_shape_cd_loss,
-        total_distractor_loss
+        best_loss,
+        best_trans_l2_loss,
+        best_rot_l2_loss,
+        best_rot_cd_loss,
+        best_shape_cd_loss,
+        best_distractor_loss
     )
 
 
