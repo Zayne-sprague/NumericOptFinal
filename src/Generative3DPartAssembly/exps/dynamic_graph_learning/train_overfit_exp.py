@@ -8,7 +8,7 @@ import sys
 import shutil
 import random
 from time import strftime
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
 import numpy as np
 import torch
 import torch.utils.data
@@ -64,7 +64,7 @@ def train(conf):
         training_dataset=train_dataset, distractor_dataset=train_distractor_dataset
     )
 
-    utils.printout(conf.flog, str(training_data))
+    # utils.printout(conf.flog, str(training_data))
     train_dataloader = torch.utils.data.DataLoader(
         training_data,
         batch_size=conf.batch_size,
@@ -75,30 +75,30 @@ def train(conf):
         worker_init_fn=utils.worker_init_fn,
     )
 
-    val_dataset = PartNetDataset(
-        category=conf.category,
-        data_file=conf.validation_data_file,
-        level=conf.level,
-        data_features=data_features,
-        max_num_part=conf.max_num_part,
-        max_size=4
-    )
-    val_distractor_dataset = PartNetDataset(
-        category=conf.category,
-        data_file=conf.validation_distractor_file,
-        level=conf.level,
-        data_features=data_features,
-        max_num_part=conf.max_distractor_num_part,
-        max_size=4
-    )
+    # val_dataset = PartNetDataset(
+    #     category=conf.category,
+    #     data_file=conf.validation_data_file,
+    #     level=conf.level,
+    #     data_features=data_features,
+    #     max_num_part=conf.max_num_part,
+    #     max_size=4
+    # )
+    # val_distractor_dataset = PartNetDataset(
+    #     category=conf.category,
+    #     data_file=conf.validation_distractor_file,
+    #     level=conf.level,
+    #     data_features=data_features,
+    #     max_num_part=conf.max_distractor_num_part,
+    #     max_size=4
+    # )
 
-    val_data = PartNetDistractorDataset(
-        training_dataset=val_dataset, distractor_dataset=val_distractor_dataset
-    )
+    # val_data = PartNetDistractorDataset(
+    #     training_dataset=val_dataset, distractor_dataset=val_distractor_dataset
+    # )
 
-    utils.printout(conf.flog, str(val_data))
+    # utils.printout(conf.flog, str(train_data))
     val_dataloader = torch.utils.data.DataLoader(
-        val_data,
+        training_data,
         batch_size=conf.batch_size,
         shuffle=False,
         pin_memory=True,
@@ -113,7 +113,7 @@ def train(conf):
     # create models
     network = model_def.Network(conf)
 
-    utils.printout(conf.flog, "\n" + str(network) + "\n")
+    # utils.printout(conf.flog, "\n" + str(network) + "\n")
 
     models = [network]
     model_names = ["network"]
@@ -154,11 +154,12 @@ def train(conf):
     train_num_batch = len(train_dataloader)
     val_num_batch = len(val_dataloader)
 
+    if not conf.no_console_log:
+        utils.printout(conf.flog, f"training run {conf.exp_name}")
+        utils.printout(conf.flog, header)
+
     # train for every epoch
     for epoch in range(conf.epochs):
-        if not conf.no_console_log:
-            utils.printout(conf.flog, f"training run {conf.exp_name}")
-            utils.printout(conf.flog, header)
 
         train_batches = enumerate(train_dataloader, 0)
 
@@ -488,7 +489,7 @@ def forward(
             # for each type of loss, compute losses per data
 
             # TODO: Incorporate this in not sure how to do it quite yet since the logic seems quite specific
-            distractor_loss = network.get_distractor_loss(relation_matrix, input_part_valids, distractor_labels, 20, conf).mean()
+            distractor_loss = network.get_distractor_loss(relation_matrix, input_part_valids, distractor_labels, 20, conf)
 
             if distractor_train_type == 'separate':
                 gold_selective_indices = distractor_labels == 0
@@ -605,7 +606,7 @@ def forward(
         if (
             is_val
             and (not conf.no_visu)
-            and epoch % conf.num_epoch_every_visu == conf.num_epoch_every_visu - 1
+            and (epoch % conf.num_epoch_every_visu == conf.num_epoch_every_visu - 1 or (epoch == conf.epochs - 1 and conf.vis_on_last))
         ):
             visu_dir = os.path.join(conf.exp_dir, "val_visu")
             out_dir = os.path.join(visu_dir, "epoch-%04d" % epoch)
@@ -918,6 +919,10 @@ if __name__ == "__main__":
         default=False,
         help="no visu? [default: False]",
     )
+    parser.add_argument(
+        "--vis_on_last",
+        action="store_true",
+    )
 
     # parse args
     conf = parser.parse_args()
@@ -939,57 +944,59 @@ if __name__ == "__main__":
     ]
 
     for exp in experiments:
+        conf_copy = Namespace(**vars(conf))
+
         for (k, v) in exp.items():
-            conf.__setattr__(k,v)
+            conf_copy.__setattr__(k,v)
 
         # mkdir exp_dir; ask for overwrite if necessary
-        conf.exp_dir = os.path.join(conf.log_dir, conf.exp_name)
-        if not os.path.exists(conf.log_dir):
-            os.mkdir(conf.log_dir)
-        if os.path.exists(conf.exp_dir):
-            if not conf.overwrite:
+        conf_copy.exp_dir = os.path.join(conf_copy.log_dir, conf_copy.exp_name)
+        if not os.path.exists(conf_copy.log_dir):
+            os.mkdir(conf_copy.log_dir)
+        if os.path.exists(conf_copy.exp_dir):
+            if not conf_copy.overwrite:
                 response = input(
                     'A training run named "%s" already exists, overwrite? (y/n) '
-                    % conf.exp_name
+                    % conf_copy.exp_name
                 )
                 if response != "y":
                     exit(1)
-            shutil.rmtree(conf.exp_dir)
-        os.mkdir(conf.exp_dir)
-        os.mkdir(os.path.join(conf.exp_dir, "ckpts"))
-        if not conf.no_visu:
-            os.mkdir(os.path.join(conf.exp_dir, "val_visu"))
+            shutil.rmtree(conf_copy.exp_dir)
+        os.mkdir(conf_copy.exp_dir)
+        os.mkdir(os.path.join(conf_copy.exp_dir, "ckpts"))
+        if not conf_copy.no_visu:
+            os.mkdir(os.path.join(conf_copy.exp_dir, "val_visu"))
 
         # control randomness
-        if conf.seed < 0:
-            conf.seed = random.randint(1, 10000)
-        random.seed(conf.seed)
-        np.random.seed(conf.seed)
-        torch.manual_seed(conf.seed)
+        if conf_copy.seed < 0:
+            conf_copy.seed = random.randint(1, 10000)
+        random.seed(conf_copy.seed)
+        np.random.seed(conf_copy.seed)
+        torch.manual_seed(conf_copy.seed)
 
         # save config
-        torch.save(conf, os.path.join(conf.exp_dir, "conf.pth"))
+        torch.save(conf_copy, os.path.join(conf_copy.exp_dir, "conf.pth"))
 
         # file log
-        flog = open(os.path.join(conf.exp_dir, "train_log.txt"), "w")
-        conf.flog = flog
+        flog = open(os.path.join(conf_copy.exp_dir, "train_log.txt"), "w")
+        conf_copy.flog = flog
 
         # backup command running
         utils.printout(flog, " ".join(sys.argv) + "\n")
-        utils.printout(flog, f"Random Seed: {conf.seed}")
+        utils.printout(flog, f"Random Seed: {conf_copy.seed}")
 
         # backup python files used for this training
         os.system(
             "cp data_dynamic.py models/%s.py %s %s"
-            % (conf.model_version, __file__, conf.exp_dir)
+            % (conf_copy.model_version, __file__, conf_copy.exp_dir)
         )
 
         # set training device
-        device = torch.device(conf.device)
-        utils.printout(flog, f"Using device: {conf.device}\n")
-        conf.device = device
+        device = torch.device(conf_copy.device)
+        utils.printout(flog, f"Using device: {conf_copy.device}\n")
+        conf_copy.device = device
 
-        train(conf)
+        train(conf_copy)
 
     ### before quit
     # close file log

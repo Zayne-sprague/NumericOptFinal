@@ -557,9 +557,9 @@ class Network(nn.Module):
     def get_distractor_loss(self, relation, valid_parts, distractors, iterations, conf):
         loss = torch.tensor(0.).to(conf.device)
         if conf.spectral_on:
-            loss += distractor_loss_clustering(relation, valid_parts, distractors, conf).to(conf.device)
+            loss += distractor_loss_clustering(relation, valid_parts, distractors, conf).to(conf.device).mean()
         if conf.random_walk_on:
-            loss += distractor_loss_walk(relation, valid_parts, distractors, iterations, conf).to(conf.device)
+            loss += distractor_loss_walk(relation, valid_parts, distractors, iterations, conf).to(conf.device).mean()
         return loss
 
         """
