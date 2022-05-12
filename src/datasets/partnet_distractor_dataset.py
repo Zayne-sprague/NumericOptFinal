@@ -55,9 +55,6 @@ class PartNetDistractorDataset(data.Dataset):
 
         data_feats = ()
 
-        random_indices = list(range(self.training_dataset.max_num_part + self.distractor_dataset.max_num_part))
-        np.random.shuffle(random_indices)
-
         for feature in self.data_features:
             if feature == 'contact_points':
                 gold_contact_points = self.training_dataset.get_contact_points(gold_shape_id)
@@ -67,7 +64,6 @@ class PartNetDistractorDataset(data.Dataset):
                     data_feats += (None,)
                 else:
                     contact_points = torch.cat([gold_contact_points, distractor_contact_points], dim=1)
-                    contact_points[:, :, :] = contact_points[:, random_indices, :]
                     data_feats = data_feats + (contact_points,)
 
             elif feature == 'sym':
@@ -78,7 +74,6 @@ class PartNetDistractorDataset(data.Dataset):
                     data_feats += (None,)
                 else:
                     syms = torch.cat([gold_syms, distractor_syms], dim=1)
-                    syms[:, :, :] = syms[:, random_indices, :]
                     data_feats = data_feats + (syms,)
 
             elif feature == 'semantic_ids':
@@ -92,7 +87,6 @@ class PartNetDistractorDataset(data.Dataset):
                     data_feats += (None,)
                 else:
                     semantic_ids = torch.cat([gold_semantic_ids, distractor_semantic_ids], dim=1)
-                    semantic_ids[:, :, :] = semantic_ids[:, random_indices, :]
                     data_feats = data_feats + (semantic_ids,)
 
             elif feature == 'part_pcs':
@@ -106,7 +100,6 @@ class PartNetDistractorDataset(data.Dataset):
                     data_feats += (None,)
                 else:
                     part_pcs = torch.cat([gold_part_pcs, distractor_part_pcs], dim=1)
-                    part_pcs[:, :, :, :] = part_pcs[:, random_indices, :, :]
                     data_feats = data_feats + (part_pcs,)
 
             elif feature == 'part_poses':
@@ -120,7 +113,6 @@ class PartNetDistractorDataset(data.Dataset):
                     data_feats += (None,)
                 else:
                     part_poses = torch.cat([gold_part_poses, distractor_part_poses], dim=1)
-                    part_poses[:, :, :] = part_poses[:, random_indices, :]
                     data_feats = data_feats + (part_poses,)
 
             elif feature == 'part_valids':
@@ -134,7 +126,6 @@ class PartNetDistractorDataset(data.Dataset):
                     data_feats += (None,)
                 else:
                     part_valids = torch.cat([gold_part_valids, distractor_part_valids], dim=1)
-                    part_valids[:, :] = part_valids[:, random_indices]
                     data_feats = data_feats + (part_valids,)
 
             elif feature == 'shape_id':
@@ -151,7 +142,6 @@ class PartNetDistractorDataset(data.Dataset):
                     data_feats += (None,)
                 else:
                     part_ids = torch.cat([gold_part_ids, distractor_part_ids], dim=1)
-                    part_ids[:, :] = part_ids[:, random_indices]
                     data_feats = data_feats + (part_ids,)
 
             elif feature == 'pairs':
@@ -169,9 +159,6 @@ class PartNetDistractorDataset(data.Dataset):
                     pairs[0:gold_pairs.shape[0], 0:gold_pairs.shape[1], 0:gold_pairs.shape[2]] += gold_pairs
                     pairs[:, gold_pairs.shape[1]:, gold_pairs.shape[2]:] += distractor_pairs
 
-                    pairs[:, :, :] = pairs[:, :, random_indices]
-                    pairs[:, :, :] = pairs[:, random_indices, :]
-
                     data_feats = data_feats + (pairs,)
 
             elif feature == 'match_ids':
@@ -185,15 +172,68 @@ class PartNetDistractorDataset(data.Dataset):
                     data_feats += (None,)
                 else:
                     match_ids = np.concatenate([gold_match_ids, distractor_match_ids])
-                    match_ids[:] = match_ids[random_indices]
                     data_feats = data_feats + (match_ids,)
             elif feature == 'part_labels':
                 gold_labels = [0] * self.training_dataset.max_num_part
                 distractor_labels = [1] * self.distractor_dataset.max_num_part
 
                 labels = torch.tensor([*gold_labels, *distractor_labels])
-                labels[:] = labels[random_indices]
                 data_feats = data_feats + (labels,)
+
+        random_indices = torch.tensor(list(range(self.training_dataset.max_num_part + self.distractor_dataset.max_num_part)))
+        if 'part_valids' in self.data_features:
+            valids = data_feats[self.data_features.index('part_valids')]
+            num_valids = valids[:, 0:int(self.training_dataset.max_num_part)].sum().item()
+            dist_num_valids = valids[:, int(self.training_dataset.max_num_part):].sum().item()
+
+            g_valid_inds = list(range(int(num_valids)))
+            d_valid_inds = list(range(int(self.training_dataset.max_num_part), int(dist_num_valids) + int(self.training_dataset.max_num_part)))
+            valid_inds = [*g_valid_inds, *d_valid_inds]
+
+            g_invalids = list(range(int(num_valids), self.training_dataset.max_num_part))
+            d_invalids = list(range(int(dist_num_valids), self.distractor_dataset.max_num_part))
+            invalids = [*g_invalids, *d_invalids]
+
+            reduced_rand_inds = np.array(valid_inds)
+            np.random.shuffle(reduced_rand_inds)
+            random_indices[0:int(num_valids) + int(dist_num_valids)] = torch.tensor(reduced_rand_inds)
+            random_indices[int(num_valids) + int(dist_num_valids):] = torch.tensor(invalids)[:]
+        else:
+            np.random.shuffle(random_indices)
+
+        for idx, feature in enumerate(self.data_features):
+            if feature == 'contact_points':
+                data_feats[idx][:, :, :] = data_feats[idx][:, random_indices, :]
+            elif feature == 'sym':
+                data_feats[idx][:, :, :] = data_feats[idx][:, random_indices, :]
+
+            elif feature == 'semantic_ids':
+                data_feats[idx][:, :, :] = data_feats[idx][:, random_indices, :]
+
+            elif feature == 'part_pcs':
+                data_feats[idx][:, :, :, :] = data_feats[idx][:, random_indices, :, :]
+
+            elif feature == 'part_poses':
+                data_feats[idx][:, :, :] = data_feats[idx][:, random_indices, :]
+
+            elif feature == 'part_valids':
+                data_feats[idx][:, :] = data_feats[idx][:, random_indices]
+
+            elif feature == 'shape_id':
+                pass
+
+            elif feature == 'part_ids':
+                data_feats[idx][:, :] = data_feats[idx][:, random_indices]
+
+            elif feature == 'pairs':
+                data_feats[idx][:, :, :] = data_feats[idx][:, :, random_indices]
+                data_feats[idx][:, :, :] = data_feats[idx][:, random_indices, :]
+
+            elif feature == 'match_ids':
+                data_feats[idx][:] = data_feats[idx][random_indices]
+
+            elif feature == 'part_labels':
+                data_feats[idx][:] = data_feats[idx][random_indices]
 
         return data_feats
 

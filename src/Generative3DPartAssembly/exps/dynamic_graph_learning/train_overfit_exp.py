@@ -492,7 +492,7 @@ def forward(
             distractor_loss = network.get_distractor_loss(relation_matrix, input_part_valids, distractor_labels, 20, conf)
 
             if distractor_train_type == 'separate':
-                gold_selective_indices = distractor_labels == 0
+                gold_selective_indices = (distractor_labels == 0).squeeze()
 
                 (
                     loss,
@@ -503,15 +503,14 @@ def forward(
                 ) = get_losses(
                     network,
                     conf,
-                    input_part_valids[gold_selective_indices].view(batch_size, -1),
-                    input_part_pcs[gold_selective_indices, :, :].view(batch_size, -1, input_part_pcs.shape[2],
-                                                                 input_part_pcs.shape[3]),
-                    pred_part_poses[gold_selective_indices, :].view(batch_size, -1, pred_part_poses.shape[2]),
-                    gt_part_poses[gold_selective_indices, :].view(batch_size, -1, gt_part_poses.shape[2]),
+                    input_part_valids[:, gold_selective_indices],
+                    input_part_pcs[:, gold_selective_indices, :, :],
+                    pred_part_poses[:, gold_selective_indices, :],
+                    gt_part_poses[:, gold_selective_indices, :],
                     iter_ind
                 )
 
-                distractor_selective_indices = distractor_labels == 0
+                distractor_selective_indices = (distractor_labels == 0).squeeze()
 
                 (
                     distractor_loss,
@@ -522,11 +521,10 @@ def forward(
                 ) = get_losses(
                     network,
                     conf,
-                    input_part_valids[distractor_selective_indices].view(batch_size, -1),
-                    input_part_pcs[distractor_selective_indices, :, :].view(batch_size, -1, input_part_pcs.shape[2],
-                                                                 input_part_pcs.shape[3]),
-                    pred_part_poses[distractor_selective_indices, :].view(batch_size, -1, pred_part_poses.shape[2]),
-                    gt_part_poses[distractor_selective_indices, :].view(batch_size, -1, gt_part_poses.shape[2]),
+                    input_part_valids[:, distractor_selective_indices],
+                    input_part_pcs[:, distractor_selective_indices, :, :],
+                    pred_part_poses[:, distractor_selective_indices, :],
+                    gt_part_poses[:, distractor_selective_indices, :],
                     iter_ind
                 )
 
@@ -538,7 +536,7 @@ def forward(
 
             else:
                 # Remove distractor
-                selective_indices = distractor_labels == 0
+                selective_indices = (distractor_labels == 0).squeeze()
 
                 (
                     loss,
@@ -549,10 +547,10 @@ def forward(
                 ) = get_losses(
                     network,
                     conf,
-                    input_part_valids[selective_indices].view(batch_size, -1),
-                    input_part_pcs[selective_indices, :, :].view(batch_size, -1, input_part_pcs.shape[2], input_part_pcs.shape[3]),
-                    pred_part_poses[selective_indices, :].view(batch_size, -1, pred_part_poses.shape[2]),
-                    gt_part_poses[selective_indices, :].view(batch_size, -1, gt_part_poses.shape[2]),
+                    input_part_valids[:, selective_indices],
+                    input_part_pcs[:, selective_indices, :, :],
+                    pred_part_poses[:, selective_indices, :],
+                    gt_part_poses[:, selective_indices, :],
                     iter_ind
                 )
 
@@ -624,27 +622,27 @@ def forward(
                 Path(info_dir).mkdir(parents=True, exist_ok=True)
 
             if batch_ind < conf.num_batch_every_visu:
-                selective_indices = distractor_labels == 0
+                selective_indices = (distractor_labels == 0).squeeze()
 
                 utils.printout(conf.flog, "Visualizing ...")
-                pred_center = pred_part_poses[selective_indices, :].view(batch_size, -1, pred_part_poses.shape[-1])[:, :, 0:3]
-                gt_center = gt_part_poses[selective_indices, :].view(batch_size, -1, gt_part_poses.shape[-1])[:, :, 0:3]
+                pred_center = pred_part_poses[:, selective_indices, 0:3]
+                gt_center = gt_part_poses[:, selective_indices, 0:3]
 
                 # compute pred_pts and gt_pts
 
                 pred_pts = (
                     qrot(
-                        pred_part_poses[selective_indices, :].view(batch_size, -1, pred_part_poses.shape[-1])[:,:,3:]
+                        pred_part_poses[:, selective_indices, 3:]
                         .unsqueeze(2)
                         .repeat(1, 1, num_point, 1),
-                        input_part_pcs[selective_indices, :, :].view(batch_size, -1, input_part_pcs.shape[-2], input_part_pcs.shape[-1]),
+                        input_part_pcs[:, selective_indices, :, :]
                     )
                     + pred_center.unsqueeze(2).repeat(1, 1, num_point, 1)
                 )
                 gt_pts = (
                     qrot(
-                        gt_part_poses[selective_indices, :].view(batch_size, -1, gt_part_poses.shape[-1])[:,:,3:].unsqueeze(2).repeat(1, 1, num_point, 1),
-                        input_part_pcs[selective_indices, :, :].view(batch_size, -1, input_part_pcs.shape[-2], input_part_pcs.shape[-1]),
+                        gt_part_poses[:, selective_indices, 3:].unsqueeze(2).repeat(1, 1, num_point, 1),
+                        input_part_pcs[:, selective_indices, :, :],
                     )
                     + gt_center.unsqueeze(2).repeat(1, 1, num_point, 1)
                 )
@@ -652,11 +650,11 @@ def forward(
                 for i in range(batch_size):
                     fn = "data-%03d.png" % (batch_ind * batch_size + i)
 
-                    cur_input_part_cnt = input_part_valids[i, selective_indices[i]].sum().item()
+                    cur_input_part_cnt = input_part_valids[i, selective_indices].sum().item()
                     cur_input_part_cnt = int(cur_input_part_cnt)
-                    cur_input_part_pcs = input_part_pcs[i, selective_indices[i]][:cur_input_part_cnt]
-                    cur_gt_part_poses = gt_part_poses[i, selective_indices[i]][:cur_input_part_cnt]
-                    cur_pred_part_poses = pred_part_poses[i, selective_indices[i]][:cur_input_part_cnt]
+                    cur_input_part_pcs = input_part_pcs[i, selective_indices][:cur_input_part_cnt]
+                    cur_gt_part_poses = gt_part_poses[i, selective_indices][:cur_input_part_cnt]
+                    cur_pred_part_poses = pred_part_poses[i, selective_indices][:cur_input_part_cnt]
 
                     pred_part_pcs = (
                         qrot(
