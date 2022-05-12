@@ -26,7 +26,8 @@ class PartNetDataset(data.Dataset):
             level: str = '3',
             data_features: List[str] = COMMON_DATA_FEATURES,
             max_num_part: int = 20,
-            filter_out_bad_examples: bool = True
+            filter_out_bad_examples: bool = True,
+            max_size: int = None
     ):
 
         # store parameters
@@ -49,6 +50,9 @@ class PartNetDataset(data.Dataset):
 
         if filter_out_bad_examples:
             self.clean_examples()
+        if max_size:
+            self.data = self.data[0:max_size]
+
 
     def clean_examples(self):
         good_indices = []

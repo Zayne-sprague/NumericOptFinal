@@ -201,8 +201,8 @@ class PartNetDistractorDataset(data.Dataset):
 if __name__ == "__main__":
     from src.utils.paths import DATA_FOLDER
 
-    training_dataset = PartNetDataset(category='', data_file=DATA_FOLDER / 'Chair.test.npy')
-    distractor_dataset = PartNetDataset(category='', data_file=DATA_FOLDER / 'Lamp.test.npy', max_num_part=1)
+    training_dataset = PartNetDataset(category='', data_file=DATA_FOLDER / 'Chair.test.npy', max_size=4)
+    distractor_dataset = PartNetDataset(category='', data_file=DATA_FOLDER / 'Lamp.test.npy', max_num_part=1, max_size = 4)
 
     dataset = PartNetDistractorDataset(
         training_dataset=training_dataset,

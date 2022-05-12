@@ -3,10 +3,10 @@
     Input of Network:
         part_pcs: part point clouds
         part_valids: identify if parts exist
-        instance label: identify geometry-equivalent part 
+        instance label: identify geometry-equivalent part
         class label: used for aggeration
     Output of Network:
-        a list of prediction of all iterations 
+        a list of prediction of all iterations
 """
 
 import numpy as np
@@ -25,13 +25,14 @@ try:
     from cd.chamfer import chamfer_distance
 except:
     print("ERROR: Could not load chamfer_distance, using test dist instead instead")
+
+
     def chamfer_distance(x1, x2, *args, **kwargs):
         return (x1 - x2).mean(dim=2), (x2 - x1).mean(dim=2)
 
 from quaternion import qrot
 from scipy.optimize import linear_sum_assignment
 import random
-
 
 
 class MLP2(nn.Module):
@@ -76,19 +77,19 @@ class MLP3(nn.Module):
     def __init__(self, feat_len):
         super(MLP3, self).__init__()
 
-        self.conv1 = nn.Conv1d(2*feat_len, 512, 1)
+        self.conv1 = nn.Conv1d(2 * feat_len, 512, 1)
         self.conv2 = nn.Conv1d(512, 512, 1)
         self.conv3 = nn.Conv1d(512, feat_len, 1)
 
-        #self.mlp1 = nn.Linear(2*feat_len, 512)
-        #self.mlp2 = nn.Linear(512, 512)
-        #self.mlp3 = nn.Linear(512, feat_len)
+        # self.mlp1 = nn.Linear(2*feat_len, 512)
+        # self.mlp2 = nn.Linear(512, 512)
+        # self.mlp3 = nn.Linear(512, feat_len)
 
         self.bn1 = nn.BatchNorm1d(512)
         self.bn2 = nn.BatchNorm1d(512)
         self.bn3 = nn.BatchNorm1d(feat_len)
 
-        #self.mlp1 = nn.Linear(512 + 512, feat_len)
+        # self.mlp1 = nn.Linear(512 + 512, feat_len)
 
     """
         Input: (B x P) x P x 2F
@@ -96,7 +97,7 @@ class MLP3(nn.Module):
     """
 
     def forward(self, x):
-        #num_part = x.shape[1]
+        # num_part = x.shape[1]
 
         x = x.permute(0, 2, 1)
         # x = self.conv1(x)
@@ -112,19 +113,19 @@ class MLP4(nn.Module):
     def __init__(self, feat_len):
         super(MLP4, self).__init__()
 
-        self.conv1 = nn.Conv1d(2*feat_len, 512, 1)
+        self.conv1 = nn.Conv1d(2 * feat_len, 512, 1)
         self.conv2 = nn.Conv1d(512, 512, 1)
         self.conv3 = nn.Conv1d(512, feat_len, 1)
 
-        #self.mlp1 = nn.Linear(2*feat_len, 512)
-        #self.mlp2 = nn.Linear(512, 512)
-        #self.mlp3 = nn.Linear(512, feat_len)
+        # self.mlp1 = nn.Linear(2*feat_len, 512)
+        # self.mlp2 = nn.Linear(512, 512)
+        # self.mlp3 = nn.Linear(512, feat_len)
 
         self.bn1 = nn.BatchNorm1d(512)
         self.bn2 = nn.BatchNorm1d(512)
         self.bn3 = nn.BatchNorm1d(feat_len)
 
-        #self.mlp1 = nn.Linear(512 + 512, feat_len)
+        # self.mlp1 = nn.Linear(512 + 512, feat_len)
 
     """
         Input: (B x P) x P x 2F
@@ -132,7 +133,7 @@ class MLP4(nn.Module):
     """
 
     def forward(self, x):
-        #num_part = x.shape[1]
+        # num_part = x.shape[1]
 
         x = x.permute(0, 2, 1)
         x = torch.relu(self.bn1(self.conv1(x)))
@@ -141,9 +142,6 @@ class MLP4(nn.Module):
         x = x.permute(0, 2, 1)
 
         return x
-
-
-
 
 
 class MLP5(nn.Module):
@@ -175,86 +173,93 @@ class MLP5(nn.Module):
         out = torch.cat([trans, quat], dim=-1)
         return out
 
+
 class R_Predictor(nn.Module):
     def __init__(self):
         super(R_Predictor, self).__init__()
         self.mlp1 = nn.Linear(128 + 128, 256)
-        self.mlp2 = nn.Linear(256,512)
-        self.mlp3 = nn.Linear(512,1)
-        
+        self.mlp2 = nn.Linear(256, 512)
+        self.mlp3 = nn.Linear(512, 1)
+
     def forward(self, x):
-        x = torch.relu(self.mlp1(x)) 
-        x = torch.relu(self.mlp2(x)) 
-        x = torch.sigmoid(self.mlp3(x)) 
+        x = torch.relu(self.mlp1(x))
+        x = torch.relu(self.mlp2(x))
+        x = torch.sigmoid(self.mlp3(x))
         return x
+
 
 class Pose_extractor(nn.Module):
     def __init__(self):
         super(Pose_extractor, self).__init__()
         self.mlp1 = nn.Linear(7, 256)
-        self.mlp2 = nn.Linear(256,128)
-        
+        self.mlp2 = nn.Linear(256, 128)
+
     def forward(self, x):
-        x = torch.relu(self.mlp1(x)) 
-        x = torch.relu(self.mlp2(x)) 
+        x = torch.relu(self.mlp1(x))
+        x = torch.relu(self.mlp2(x))
         return x
+
 
 def rand_index(predicted_mask, true_mask):
     size = true_mask.shape[0]
-    denom = size*(torch.sub(size,1))
-    predicted_table=torch.matmul(predicted_mask.reshape([size,1]),predicted_mask.unsqueeze(0))
-    true_table=torch.matmul(true_mask.reshape([size,1]).float(), true_mask.unsqueeze(0).float())
-    #this version of pytorch used by the researchers doesn't have logical xor or logical not and so I replaced that with this
-    #this works cause conveniently it's binary
-    table=(predicted_table+true_table+1)%2
-    return 1-(torch.sum(table)-torch.sum(torch.diagonal(table,0))).float()/denom.float()
+    denom = size * (torch.sub(size, 1))
+    predicted_table = torch.matmul(predicted_mask.reshape([size, 1]), predicted_mask.unsqueeze(0))
+    true_table = torch.matmul(true_mask.reshape([size, 1]).float(), true_mask.unsqueeze(0).float())
+    # this version of pytorch used by the researchers doesn't have logical xor or logical not and so I replaced that with this
+    # this works cause conveniently it's binary
+    table = (predicted_table + true_table + 1) % 2
+    return 1 - (torch.sum(table) - torch.sum(torch.diagonal(table, 0))).float() / denom.float()
 
-                
+
 def spectral_cluster(relation_mat, conf):
-    relation = (relation_mat.t()*relation_mat)
-    relation=relation-torch.diag(torch.diag(relation))
-    relation = torch.diag(relation.sum(dim=0))-relation
-    #all real valued and is a psd since A=xt*x => psd
-    vals, vecs = torch.eig(relation, eigenvectors=True)        
-    vals=vals[:,0].squeeze()
-    _,idx=torch.sort(vals, descending=True)
-    vecs=vecs[idx,:]
-    labels,_= kmeans(vecs,num_clusters=2,distance='euclidean')
+    relation = (relation_mat.t() * relation_mat)
+    relation = relation - torch.diag(torch.diag(relation))
+    relation = torch.diag(relation.sum(dim=0)) - relation
+    # all real valued and is a psd since A=xt*x => psd
+    vals, vecs = torch.eig(relation, eigenvectors=True)
+    vals = vals[:, 0].squeeze()
+    _, idx = torch.sort(vals, descending=True)
+    vecs = vecs[idx, :]
+    labels, _ = kmeans(vecs, num_clusters=2, distance='euclidean')
     labels = labels.to(conf.device)
     labels = labels.float()
-    #need to map the label back to where they were initially based on idx
-    labels=labels.gather(0,idx.argsort(0)).to(conf.device)
+    # need to map the label back to where they were initially based on idx
+    labels = labels.gather(0, idx.argsort(0)).to(conf.device)
     return labels
 
+
 def distractor_loss_clustering(relation_mat, valid_parts, distractor_labels, conf):
-    #distractor labels should be b x p similar to valid parts 
-    ret=torch.zeros(relation_mat.shape[0])
+    # distractor labels should be b x p similar to valid parts
+    ret = torch.zeros(relation_mat.shape[0])
     for i in range(relation_mat.shape[0]):
         num_parts = int(torch.sum(valid_parts[i]).item())
-        new_relation = relation_mat[i][:num_parts,:num_parts]
-        #compute cluster mask
+        new_relation = relation_mat[i][:num_parts, :num_parts]
+        # compute cluster mask
         cluster_mask = spectral_cluster(new_relation, conf)
-        ret[i] = rand_index(cluster_mask, distractor_labels[i,:num_parts])
+        ret[i] = rand_index(cluster_mask, distractor_labels[i, :num_parts])
     return ret
 
-def random_walk(relation_mat, distractor_labels,k):
-    distribution=distractor_labels/torch.sum(distractor_labels)
-    #want to compute n iterations of iterations
-    #convert relation mat to transition matrix
-    T=torch.nn.functional.normalize(relation_mat,p=1,dim=1)
-    return torch.matmul(distribution.float(),torch.matrix_power(T,k).float())
-    
+
+def random_walk(relation_mat, distractor_labels, k):
+    distribution = distractor_labels / torch.sum(distractor_labels)
+    # want to compute n iterations of iterations
+    # convert relation mat to transition matrix
+    T = torch.nn.functional.normalize(relation_mat, p=1, dim=1)
+    return torch.matmul(distribution.float(), torch.matrix_power(T, k).float())
+
+
 def distractor_loss_walk(relation_mat, valid_parts, distractor_labels, iterations, conf):
-    #want to a bunch of random walks with k time steps and penalize based on the p(not distractor point | initial start at distractor)
-    #initial distribution should be bxp where it's 1/(num distractors) in place of distractor
-    ret=torch.zeros([relation_mat.shape[0],1]).to(conf.device).float()
+    # want to a bunch of random walks with k time steps and penalize based on the p(not distractor point | initial start at distractor)
+    # initial distribution should be bxp where it's 1/(num distractors) in place of distractor
+    ret = torch.zeros([relation_mat.shape[0], 1]).to(conf.device).float()
     for i in range(relation_mat.shape[0]):
         num_parts = int(torch.sum(valid_parts[i]).item())
-        new_relation = relation_mat[i][:num_parts,:num_parts]
-        walk = random_walk(new_relation, distractor_labels[i,:num_parts],iterations).to(conf.device)
-        #compute loss of this walk so want the sum of distractor points to be as large as possible
-        ret[i] = (1-(torch.sum(torch.mul(walk.float(), distractor_labels[i,:num_parts].float())))).to(conf.device)
+        new_relation = relation_mat[i][:num_parts, :num_parts]
+        walk = random_walk(new_relation, distractor_labels[i, :num_parts], iterations).to(conf.device)
+        # compute loss of this walk so want the sum of distractor points to be as large as possible
+        ret[i] = (1 - (torch.sum(torch.mul(walk.float(), distractor_labels[i, :num_parts].float())))).to(conf.device)
     return ret
+
 
 class Network(nn.Module):
 
@@ -264,10 +269,13 @@ class Network(nn.Module):
         self.mlp2 = MLP2(conf.feat_len)
         self.mlp3s = nn.ModuleList([MLP3(conf.feat_len) for i in range(conf.iter)])
         self.mlp4s = nn.ModuleList([MLP4(conf.feat_len) for i in range(conf.iter)])
-        self.mlp5s = nn.ModuleList([MLP5(conf.feat_len * 2 + (conf.max_num_part + conf.max_distractor_num_part) + 7 + 16) for i in range(conf.iter)])
+        self.mlp5s = nn.ModuleList(
+            [MLP5(conf.feat_len * 2 + (conf.max_num_part + conf.max_distractor_num_part) + 7 + 16) for i in
+             range(conf.iter)])
         self.relation_predictor = R_Predictor()
         self.relation_predictor_dense = R_Predictor()
         self.pose_extractor = Pose_extractor()
+
     """
         Input: B x P x P, B x P, B x P x N x 3, B x P x P
         Output: B x P x (3 + 4)
@@ -281,66 +289,71 @@ class Network(nn.Module):
         pred_poses = torch.zeros((batch_size, num_part, 7)).to(conf.device)
         total_pred_poses = []
         # obtain per-part feature
-        part_feats = self.mlp2(part_pcs.view(batch_size * num_part, -1, 3)).view(batch_size, num_part, -1)  # output: B x P x F
+        part_feats = self.mlp2(part_pcs.view(batch_size * num_part, -1, 3)).view(batch_size, num_part,
+                                                                                 -1)  # output: B x P x F
         local_feats = part_feats
         random_noise = np.random.normal(loc=0.0, scale=1.0, size=[batch_size, num_part, 16]).astype(
             np.float32)  # B x P x 16
         random_noise = torch.tensor(random_noise).to(self.conf.device)  # B x P x 16
-        
+
         for iter_ind in range(self.conf.iter):
             # adjust relations
-            if iter_ind >= 1 :
-                cur_poses = copy.copy(pred_poses).double()            
+            if iter_ind >= 1:
+                cur_poses = copy.copy(pred_poses).double()
                 pose_feat = self.pose_extractor(cur_poses.float())
-                if iter_ind % 2 == 1: 
+                if iter_ind % 2 == 1:
                     for i in range(batch_size):
                         for j in range(len(class_list[i])):
-                            cur_pose_feats = pose_feat[i,class_list[i][j]]
-                            cur_pose_feat = cur_pose_feats.max(dim = -2)[0] 
-                            pose_feat[i,class_list[i][j]]=cur_pose_feat
+                            cur_pose_feats = pose_feat[i, class_list[i][j]]
+                            cur_pose_feat = cur_pose_feats.max(dim=-2)[0]
+                            pose_feat[i, class_list[i][j]] = cur_pose_feat
                             part_feats_copy = copy.copy(part_feats)
                             with torch.no_grad():
-                                part_feats_copy[i,class_list[i][j]] = part_feats_copy[i, class_list[i][j]].max(dim = -2)[0]
+                                part_feats_copy[i, class_list[i][j]] = part_feats_copy[i, class_list[i][j]].max(dim=-2)[
+                                    0]
 
-                pose_featA = pose_feat.unsqueeze(1).repeat(1,num_part,1,1)
-                pose_featB = pose_feat.unsqueeze(2).repeat(1,1,num_part,1)
-                input_relation = torch.cat([pose_featA,pose_featB],dim = -1).float()
+                pose_featA = pose_feat.unsqueeze(1).repeat(1, num_part, 1, 1)
+                pose_featB = pose_feat.unsqueeze(2).repeat(1, 1, num_part, 1)
+                input_relation = torch.cat([pose_featA, pose_featB], dim=-1).float()
                 if iter_ind % 2 == 0:
-                    new_relation = self.relation_predictor_dense(input_relation.view(batch_size,-1,256)).view(batch_size,num_part,num_part)
+                    new_relation = self.relation_predictor_dense(input_relation.view(batch_size, -1, 256)).view(
+                        batch_size, num_part, num_part)
                 elif iter_ind % 2 == 1:
-                    new_relation = self.relation_predictor(input_relation.view(batch_size,-1,256)).view(batch_size,num_part,num_part)
-                relation_matrix = new_relation.double() * valid_matrix 
-            # mlp3
-            if iter_ind>=1 and iter_ind%2==1: 
-                part_feat1 = part_feats_copy.unsqueeze(2).repeat(1, 1, num_part, 1) # B x P x P x F
-                part_feat2 = part_feats_copy.unsqueeze(1).repeat(1, num_part, 1, 1) # B x P x P x F
+                    new_relation = self.relation_predictor(input_relation.view(batch_size, -1, 256)).view(batch_size,
+                                                                                                          num_part,
+                                                                                                          num_part)
+                relation_matrix = new_relation.double() * valid_matrix
+                # mlp3
+            if iter_ind >= 1 and iter_ind % 2 == 1:
+                part_feat1 = part_feats_copy.unsqueeze(2).repeat(1, 1, num_part, 1)  # B x P x P x F
+                part_feat2 = part_feats_copy.unsqueeze(1).repeat(1, num_part, 1, 1)  # B x P x P x F
             else:
-                part_feat1 = part_feats.unsqueeze(2).repeat(1, 1, num_part, 1) # B x P x P x F
-                part_feat2 = part_feats.unsqueeze(1).repeat(1, num_part, 1, 1) # B x P x P x F
-            input_3 = torch.cat([part_feat1, part_feat2], dim=-1) # B x P x P x 2F
+                part_feat1 = part_feats.unsqueeze(2).repeat(1, 1, num_part, 1)  # B x P x P x F
+                part_feat2 = part_feats.unsqueeze(1).repeat(1, num_part, 1, 1)  # B x P x P x F
+            input_3 = torch.cat([part_feat1, part_feat2], dim=-1)  # B x P x P x 2F
             mlp3 = self.mlp3s[iter_ind]
             mlp4 = self.mlp4s[iter_ind]
             mlp5 = self.mlp5s[iter_ind]
             # for the pair of parts (A, B), A is the query one, A is about the row, A is the former in part_feats
             part_relation = mlp3(input_3.view(batch_size * num_part, num_part, -1)).view(batch_size, num_part,
-                                     num_part, -1) # B x P x P x F
+                                                                                         num_part, -1)  # B x P x P x F
 
             # pooling
-            part_message = part_relation.double() * relation_matrix.unsqueeze(3).double() # B x P x P x F
-            part_message = part_message.sum(dim=2) # B x P x F
-            norm = relation_matrix.sum(dim=-1) # B x P
+            part_message = part_relation.double() * relation_matrix.unsqueeze(3).double()  # B x P x P x F
+            part_message = part_message.sum(dim=2)  # B x P x F
+            norm = relation_matrix.sum(dim=-1)  # B x P
             delta = 1e-6
-            normed_part_message = part_message / (norm.unsqueeze(dim=2) + delta) # B x P x F
+            normed_part_message = part_message / (norm.unsqueeze(dim=2) + delta)  # B x P x F
 
             # mlp4
-            input_4 = torch.cat([normed_part_message.double(), part_feats.double()], dim=-1) # B x P x 2F
-            part_feats= mlp4(input_4.float()) # B x P x F
-            
+            input_4 = torch.cat([normed_part_message.double(), part_feats.double()], dim=-1)  # B x P x 2F
+            part_feats = mlp4(input_4.float())  # B x P x F
+
             # mlp5
-            input_5 = torch.cat([local_feats, part_feats.float(), instance_label, pred_poses, random_noise],dim=-1)
+            input_5 = torch.cat([local_feats, part_feats.float(), instance_label, pred_poses, random_noise], dim=-1)
             pred_poses = mlp5(input_5.float())
 
-            # save poses 
+            # save poses
             total_pred_poses.append(pred_poses)
 
         return total_pred_poses
@@ -428,13 +441,12 @@ class Network(nn.Module):
     """
 
     def linear_assignment(self, pts, centers1, quats1, centers2, quats2):
-        pts_to_select = torch.tensor(random.sample([i for i  in range(1000)],100))
-        pts = pts[:,pts_to_select] 
+        pts_to_select = torch.tensor(random.sample([i for i in range(1000)], 100))
+        pts = pts[:, pts_to_select]
         cur_part_cnt = pts.shape[0]
         num_point = pts.shape[1]
 
         with torch.no_grad():
-
             cur_quats1 = quats1.unsqueeze(1).repeat(1, num_point, 1)
             cur_centers1 = centers1.unsqueeze(1).repeat(1, num_point, 1)
             cur_pts1 = qrot(cur_quats1, pts) + cur_centers1
@@ -450,7 +462,6 @@ class Network(nn.Module):
             rind, cind = linear_sum_assignment(dist_mat.cpu().numpy())
 
         return rind, cind
-
 
     """
         Input: B x P x 3, B x P x 3, B x P
@@ -498,57 +509,63 @@ class Network(nn.Module):
 
         loss_per_data = loss_per_data.to(device)
         loss_per_data = (loss_per_data * valids).sum(1) / valids.sum(1)
-        return loss_per_data  
-        
+        return loss_per_data
+
     def get_total_cd_loss(self, pts, quat1, quat2, valids, center1, center2, device):
         batch_size = pts.shape[0]
-        num_part =  pts.shape[1]
+        num_part = pts.shape[1]
         num_point = pts.shape[2]
-        center1 = center1.unsqueeze(2).repeat(1,1,num_point,1)
-        center2 = center2.unsqueeze(2).repeat(1,1,num_point,1)
+        center1 = center1.unsqueeze(2).repeat(1, 1, num_point, 1)
+        center2 = center2.unsqueeze(2).repeat(1, 1, num_point, 1)
         pts1 = qrot(quat1.unsqueeze(2).repeat(1, 1, num_point, 1), pts) + center1
         pts2 = qrot(quat2.unsqueeze(2).repeat(1, 1, num_point, 1), pts) + center2
 
         dist1, dist2 = chamfer_distance(pts1.view(-1, num_point, 3), pts2.view(-1, num_point, 3), transpose=False)
         loss_per_data = torch.mean(dist1, dim=1) + torch.mean(dist2, dim=1)
         loss_per_data = loss_per_data.view(batch_size, -1)
-        
+
         thre = 0.01
         loss_per_data = loss_per_data.to(device)
-        acc = [[0 for i in range(num_part)]for j in range(batch_size)]
+        acc = [[0 for i in range(num_part)] for j in range(batch_size)]
         for i in range(batch_size):
             for j in range(num_part):
-                if loss_per_data[i,j] < thre and valids[i,j]:
+                if loss_per_data[i, j] < thre and valids[i, j]:
                     acc[i][j] = 1
         loss_per_data = (loss_per_data * valids).sum(1) / valids.sum(1)
-        return loss_per_data , acc
+        return loss_per_data, acc
 
     def get_shape_cd_loss(self, pts, quat1, quat2, valids, center1, center2, device):
         batch_size = pts.shape[0]
         num_part = pts.shape[1]
         num_point = pts.shape[2]
-        center1 = center1.unsqueeze(2).repeat(1,1,num_point,1)
-        center2 = center2.unsqueeze(2).repeat(1,1,num_point,1)
+        center1 = center1.unsqueeze(2).repeat(1, 1, num_point, 1)
+        center2 = center2.unsqueeze(2).repeat(1, 1, num_point, 1)
         pts1 = qrot(quat1.unsqueeze(2).repeat(1, 1, num_point, 1), pts) + center1
         pts2 = qrot(quat2.unsqueeze(2).repeat(1, 1, num_point, 1), pts) + center2
 
-        pts1 = pts1.view(batch_size,num_part*num_point,3)
-        pts2 = pts2.view(batch_size,num_part*num_point,3)
+        pts1 = pts1.view(batch_size, num_part * num_point, 3)
+        pts2 = pts2.view(batch_size, num_part * num_point, 3)
         dist1, dist2 = chamfer_distance(pts1, pts2, transpose=False)
-        valids = valids.unsqueeze(2).repeat(1,1,1000).view(batch_size,-1)
+        valids = valids.unsqueeze(2).repeat(1, 1, 1000).view(batch_size, -1)
         dist1 = dist1 * valids
         dist2 = dist2 * valids
         loss_per_data = torch.mean(dist1, dim=1) + torch.mean(dist2, dim=1)
-        
+
         loss_per_data = loss_per_data.to(device)
         return loss_per_data
-    
+
     def get_distractor_loss(self, relation, valid_parts, distractors, iterations, conf):
-        return distractor_loss_clustering(relation,valid_parts,distractors, conf).to(conf.device) + distractor_loss_walk(relation,valid_parts,distractors,iterations, conf).to(conf.device)
+        loss = torch.tensor(0.).to(conf.device)
+        if conf.spectral_on:
+            loss += distractor_loss_clustering(relation, valid_parts, distractors, conf).to(conf.device)
+        if conf.random_walk_on:
+            loss += distractor_loss_walk(relation, valid_parts, distractors, iterations, conf).to(conf.device)
+        return loss
 
         """
             output : B
         """
+
     def get_sym_point(self, point, x, y, z):
 
         if x:
@@ -561,9 +578,9 @@ class Network(nn.Module):
         return point.tolist()
 
     def get_possible_point_list(self, point, sym):
-        sym = torch.tensor([1.0,1.0,1.0]) 
+        sym = torch.tensor([1.0, 1.0, 1.0])
         point_list = []
-        #sym = torch.tensor(sym)
+        # sym = torch.tensor(sym)
         if sym.equal(torch.tensor([0.0, 0.0, 0.0])):
             point_list.append(self.get_sym_point(point, 0, 0, 0))
         elif sym.equal(torch.tensor([1.0, 0.0, 0.0])):
@@ -601,12 +618,13 @@ class Network(nn.Module):
             point_list.append(self.get_sym_point(point, 1, 1, 1))
 
         return point_list
+
     def get_min_l2_dist(self, list1, list2, center1, center2, quat1, quat2):
 
-        list1 = torch.tensor(list1) # m x 3
-        list2 = torch.tensor(list2) # n x 3
-        #print(list1[0])
-        #print(list2[0])
+        list1 = torch.tensor(list1)  # m x 3
+        list2 = torch.tensor(list2)  # n x 3
+        # print(list1[0])
+        # print(list2[0])
         len1 = list1.shape[0]
         len2 = list2.shape[0]
         center1 = center1.unsqueeze(0).repeat(len1, 1)
@@ -620,7 +638,7 @@ class Network(nn.Module):
         mat1 = list1.unsqueeze(1).repeat(1, len2, 1)
         mat2 = list2.unsqueeze(0).repeat(len1, 1, 1)
         mat = (mat1 - mat2) * (mat1 - mat2)
-        #ipdb.set_trace()
+        # ipdb.set_trace()
         mat = mat.sum(dim=-1)
         return mat.min()
 
@@ -630,6 +648,7 @@ class Network(nn.Module):
         Input B x P x 3, B x P x 4, B x P x P x 4, B x P x 3
         Ouput B
     """
+
     def get_contact_point_loss(self, center, quat, contact_points, sym_info):
 
         batch_size = center.shape[0]
@@ -638,7 +657,7 @@ class Network(nn.Module):
         total_num = 0
         count = 0
         for b in range(batch_size):
-            #print("Shape id is", b)
+            # print("Shape id is", b)
             sum_loss = 0
             for i in range(num_part):
                 for j in range(num_part):
@@ -649,14 +668,14 @@ class Network(nn.Module):
                         sym2 = sym_info[b, j]
                         point_list_1 = self.get_possible_point_list(contact_point_1, sym1)
                         point_list_2 = self.get_possible_point_list(contact_point_2, sym2)
-                        dist = self.get_min_l2_dist(point_list_1, point_list_2, center[b, i, :], center[b, j, :], quat[b, i, :], quat[b, j, :])  # 1
-                        #print(dist)
+                        dist = self.get_min_l2_dist(point_list_1, point_list_2, center[b, i, :], center[b, j, :],
+                                                    quat[b, i, :], quat[b, j, :])  # 1
+                        # print(dist)
                         if dist < 0.01:
                             count += 1
                         total_num += 1
                         sum_loss += dist
             contact_point_loss[b] = sum_loss
 
-
-        #print(count, total_num)
+        # print(count, total_num)
         return contact_point_loss, count, total_num
