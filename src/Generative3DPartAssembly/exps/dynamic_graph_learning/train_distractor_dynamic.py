@@ -38,6 +38,7 @@ def train(conf):
         "part_ids",
         "match_ids",
         "pairs",
+        "part_labels"
     ]
 
     train_dataset = PartNetDataset(
@@ -127,7 +128,7 @@ def train(conf):
 
     # create logs
     if not conf.no_console_log:
-        header = "     Time    Epoch     Dataset    Iteration    Progress(%)       LR    TransL2Loss    RotL2Loss   RotCDLoss  ShapeCDLoss   TotalLoss"
+        header = "     Time    Epoch     Dataset    Iteration    Progress(%)       LR    TransL2Loss    RotL2Loss   RotCDLoss  ShapeCDLoss  DistractorLoss TotalLoss"
     if not conf.no_tb_log:
         # https://github.com/lanpa/tensorboard-pytorch
         from tensorboardX import SummaryWriter
@@ -163,6 +164,11 @@ def train(conf):
         val_batch_ind = -1
         val_flag = 0  # to record whether it is the first time
 
+        sum_total_trans_l2_loss = torch.tensor(0.)
+        sum_total_rot_l2_loss = torch.tensor(0.)
+        sum_total_rot_cd_loss = torch.tensor(0.)
+        sum_total_shape_cd_loss = torch.tensor(0.)
+
         # train for every batch
         for train_batch_ind, batch in train_batches:
             train_fraction_done = (train_batch_ind + 1) / train_num_batch
@@ -188,6 +194,7 @@ def train(conf):
                 total_rot_l2_loss,
                 total_rot_cd_loss,
                 total_shape_cd_loss,
+                total_distractor_loss
             ) = forward(
                 batch=batch,
                 data_features=data_features,
@@ -272,6 +279,7 @@ def train(conf):
                         total_rot_l2_loss,
                         total_rot_cd_loss,
                         total_shape_cd_loss,
+                        total_distractor_loss
                     ) = forward(
                         batch=val_batch,
                         data_features=data_features,
@@ -401,9 +409,25 @@ def forward(
         same_class_list.append(cur_same_class_list)
     # forward through the network
 
+    # DISTRACTORS
+
+    distractor_labels = torch.cat(batch[data_features.index('part_labels')], dim=0).to(
+        conf.device
+    ).view(batch_size, -1)
+
+    #
+    distractor_train_type = conf.distractor_train_type
+
+    best_loss = torch.tensor(0).float()
+    best_trans_l2_loss = torch.tensor(0).float()
+    best_rot_l2_loss = torch.tensor(0).float()
+    best_rot_cd_loss = torch.tensor(0).float()
+    best_shape_cd_loss = torch.tensor(0).float()
+    best_distractor_loss = torch.tensor(0).float()
+
     repeat_times = 5
     for repeat_ind in range(repeat_times):
-        total_pred_part_poses = network(
+        total_pred_part_poses, relation_matrix = network(
             conf,
             input_part_pairs.float(),
             input_part_valids.float(),
@@ -411,6 +435,13 @@ def forward(
             instance_label,
             same_class_list,
         )  # B x P x P, B x P, B x P x N x 3
+
+        total_loss = torch.tensor(0).float()
+        total_trans_l2_loss = torch.tensor(0).float()
+        total_rot_l2_loss = torch.tensor(0).float()
+        total_rot_cd_loss = torch.tensor(0).float()
+        total_shape_cd_loss = torch.tensor(0).float()
+        total_distractor_loss = torch.tensor(0).float()
 
         for iter_ind in range(conf.iter):
             pred_part_poses = total_pred_part_poses[iter_ind]
@@ -451,102 +482,96 @@ def forward(
             # prepare gt
             input_part_pcs = input_part_pcs[:, :, :1000, :]
             # for each type of loss, compute losses per data
-            trans_l2_loss_per_data = network.get_trans_l2_loss(
-                pred_part_poses[:, :, :3], gt_part_poses[:, :, :3], input_part_valids
-            )  # B
-            rot_l2_loss_per_data = network.get_rot_l2_loss(
-                input_part_pcs,
-                pred_part_poses[:, :, 3:],
-                gt_part_poses[:, :, 3:],
-                input_part_valids,
-            )  # B
-            rot_cd_loss_per_data = network.get_rot_cd_loss(
-                input_part_pcs,
-                pred_part_poses[:, :, 3:],
-                gt_part_poses[:, :, 3:],
-                input_part_valids,
-                conf.device,
-            )  # B
-            shape_cd_loss_per_data = network.get_shape_cd_loss(
-                input_part_pcs,
-                pred_part_poses[:, :, 3:],
-                gt_part_poses[:, :, 3:],
-                input_part_valids,
-                pred_part_poses[:, :, :3],
-                gt_part_poses[:, :, :3],
-                conf.device,
-            )
-            
-            #TODO: Incorporate this in not sure how to do it quite yet since the logic seems quite specific
-            distractor_loss=network.get_distractor_loss() if not conf.distractors else 0
 
-            # for each type of loss, compute avg loss per batch
-            shape_cd_loss = shape_cd_loss_per_data.mean()
-            trans_l2_loss = trans_l2_loss_per_data.mean()
-            rot_l2_loss = rot_l2_loss_per_data.mean()
-            rot_cd_loss = rot_cd_loss_per_data.mean()
-            distractor_loss = distractor_loss.mean()
-            # compute total loss
-            if iter_ind == 0:
-                total_loss = (
-                    trans_l2_loss * conf.loss_weight_trans_l2
-                    + rot_l2_loss * conf.loss_weight_rot_l2
-                    + rot_cd_loss * conf.loss_weight_rot_cd
-                    + shape_cd_loss * conf.loss_weight_shape_cd
-                    + distractor_loss * conf.loss_weight_distractors
+            # TODO: Incorporate this in not sure how to do it quite yet since the logic seems quite specific
+            distractor_loss = network.get_distractor_loss(relation_matrix, input_part_valids, distractor_labels, 20).mean()
+
+            if distractor_train_type == 'separate':
+                gold_selective_indices = distractor_labels == 0
+
+                (
+                    loss,
+                    trans_l2_loss,
+                    rot_l2_loss,
+                    rot_cd_loss,
+                    shape_cd_loss
+                ) = get_losses(
+                    network,
+                    conf,
+                    input_part_valids[gold_selective_indices].view(batch_size, -1),
+                    input_part_pcs[gold_selective_indices, :, :].view(batch_size, -1, input_part_pcs.shape[2],
+                                                                 input_part_pcs.shape[3]),
+                    pred_part_poses[gold_selective_indices, :].view(batch_size, -1, pred_part_poses.shape[2]),
+                    gt_part_poses[gold_selective_indices, :].view(batch_size, -1, gt_part_poses.shape[2]),
+                    iter_ind
                 )
-                total_shape_cd_loss = shape_cd_loss
-                total_trans_l2_loss = trans_l2_loss
-                total_rot_l2_loss = rot_l2_loss
-                total_rot_cd_loss = rot_cd_loss
-                total_distractor_loss = distractor_loss
-            elif iter_ind == conf.iter - 1:
-                total_loss += (
-                    trans_l2_loss * conf.loss_weight_trans_l2
-                    + rot_l2_loss * conf.loss_weight_rot_l2
-                    + rot_cd_loss * conf.loss_weight_rot_cd
-                    + shape_cd_loss * conf.loss_weight_shape_cd
-                    + distractor_loss * conf.loss_weight_distractors
+
+                distractor_selective_indices = distractor_labels == 0
+
+                (
+                    distractor_loss,
+                    distractor_trans_l2_loss,
+                    distractor_rot_l2_loss,
+                    distractor_rot_cd_loss,
+                    distractor_shape_cd_loss
+                ) = get_losses(
+                    network,
+                    conf,
+                    input_part_valids[distractor_selective_indices].view(batch_size, -1),
+                    input_part_pcs[distractor_selective_indices, :, :].view(batch_size, -1, input_part_pcs.shape[2],
+                                                                 input_part_pcs.shape[3]),
+                    pred_part_poses[distractor_selective_indices, :].view(batch_size, -1, pred_part_poses.shape[2]),
+                    gt_part_poses[distractor_selective_indices, :].view(batch_size, -1, gt_part_poses.shape[2]),
+                    iter_ind
                 )
-                total_shape_cd_loss += shape_cd_loss
-                total_trans_l2_loss += trans_l2_loss
-                total_rot_l2_loss += rot_l2_loss
-                total_rot_cd_loss += rot_cd_loss
-                total_distractor_loss += distractor_loss
-                if repeat_ind == 0:
-                    res_loss = total_loss
-                    res_shape_cd_loss = total_shape_cd_loss
-                    res_trans_l2_loss = total_trans_l2_loss
-                    res_rot_l2_loss = total_rot_l2_loss
-                    res_rot_cd_loss = total_rot_cd_loss
-                    res_distractor_loss = total_distractor_loss
-                else:
-                    res_loss = res_loss.min(total_loss)
-                    res_shape_cd_loss = res_shape_cd_loss.min(total_shape_cd_loss)
-                    res_trans_l2_loss = res_trans_l2_loss.min(total_trans_l2_loss)
-                    res_rot_l2_loss = res_rot_l2_loss.min(total_rot_l2_loss)
-                    res_rot_cd_loss = res_rot_cd_loss.min(total_rot_cd_loss)
-                    res_distractor_loss = res_distractor_loss.min(total_distractor_loss)
+
+                loss += distractor_loss
+                trans_l2_loss += distractor_trans_l2_loss
+                rot_l2_loss += distractor_rot_l2_loss
+                rot_cd_loss += distractor_rot_cd_loss
+                shape_cd_loss += distractor_shape_cd_loss
+
             else:
-                total_loss += (
-                    trans_l2_loss * conf.loss_weight_trans_l2
-                    + rot_l2_loss * conf.loss_weight_rot_l2
-                    + rot_cd_loss * conf.loss_weight_rot_cd
-                    + shape_cd_loss * conf.loss_weight_shape_cd
-                    + distractor_loss * conf.loss_weight_distractors
-                )
-                total_shape_cd_loss += shape_cd_loss
-                total_trans_l2_loss += trans_l2_loss
-                total_rot_l2_loss += rot_l2_loss
-                total_rot_cd_loss += rot_cd_loss
-                total_distractor_loss += distractor_loss
+                # Remove distractor
+                selective_indices = distractor_labels == 0
 
-    total_loss = res_loss
-    total_trans_l2_loss = res_trans_l2_loss
-    total_rot_l2_loss = res_rot_l2_loss
-    total_rot_cd_loss = res_rot_cd_loss
-    total_shape_cd_loss = res_shape_cd_loss
-    total_distractor_loss = res_distractor_loss
+                (
+                    loss,
+                    trans_l2_loss,
+                    rot_l2_loss,
+                    rot_cd_loss,
+                    shape_cd_loss,
+                ) = get_losses(
+                    network,
+                    conf,
+                    input_part_valids[selective_indices].view(batch_size, -1),
+                    input_part_pcs[selective_indices, :, :].view(batch_size, -1, input_part_pcs.shape[2], input_part_pcs.shape[3]),
+                    pred_part_poses[selective_indices, :].view(batch_size, -1, pred_part_poses.shape[2]),
+                    gt_part_poses[selective_indices, :].view(batch_size, -1, gt_part_poses.shape[2]),
+                    iter_ind
+                )
+
+            total_loss += (loss + (conf.loss_weight_distractor * distractor_loss)).float()
+            total_trans_l2_loss += trans_l2_loss
+            total_rot_l2_loss += rot_l2_loss
+            total_rot_cd_loss += rot_cd_loss
+            total_shape_cd_loss += shape_cd_loss
+            total_distractor_loss += distractor_loss
+
+        if repeat_ind == 0:
+            best_loss = total_loss
+            best_trans_l2_loss = total_trans_l2_loss
+            best_rot_l2_loss = total_rot_l2_loss
+            best_rot_cd_loss = total_rot_cd_loss
+            best_shape_cd_loss = total_shape_cd_loss
+            best_distractor_loss = total_distractor_loss
+        else:
+            best_loss = best_loss.min(total_loss)
+            best_trans_l2_loss = best_trans_l2_loss.min(total_trans_l2_loss)
+            best_rot_l2_loss = best_rot_l2_loss.min(total_rot_l2_loss)
+            best_rot_cd_loss = best_rot_cd_loss.min(total_rot_cd_loss)
+            best_shape_cd_loss = best_shape_cd_loss.min(total_shape_cd_loss)
+            best_distractor_loss = best_distractor_loss.min(total_distractor_loss)
 
     data_split = "train"
     if is_val:
@@ -563,11 +588,12 @@ def forward(
                 f"""{batch_ind:>5.0f}/{num_batch:<5.0f} """
                 f"""{100. * (1 + batch_ind + num_batch * epoch) / (num_batch * conf.epochs):>9.1f}%      """
                 f"""{lr:>5.2E} """
-                f"""{trans_l2_loss.item():>10.5f}   """
-                f"""{rot_l2_loss.item():>10.5f}   """
-                f"""{rot_cd_loss.item():>10.5f}  """
-                f"""{shape_cd_loss.item():>10.5f}  """
-                f"""{total_loss.item():>10.5f}  """,
+                f"""{best_trans_l2_loss.item():>10.5f}   """
+                f"""{best_rot_l2_loss.item():>10.5f}   """
+                f"""{best_rot_cd_loss.item():>10.5f}  """
+                f"""{best_shape_cd_loss.item():>10.5f}  """
+                f"""{best_distractor_loss.item():>10.5f}"""
+                f"""{best_loss.item():>10.5f}  """,
             )
             conf.flog.flush()
 
@@ -594,14 +620,14 @@ def forward(
 
             if batch_ind < conf.num_batch_every_visu:
                 utils.printout(conf.flog, "Visualizing ...")
-                pred_center = pred_part_poses[:, :, :3]
-                gt_center = gt_part_poses[:, :, :3]
+                pred_center = pred_part_poses[:, distractor_labels == 0, :3]
+                gt_center = gt_part_poses[:, distractor_labels == 0, :3]
 
                 # compute pred_pts and gt_pts
 
                 pred_pts = (
                     qrot(
-                        pred_part_poses[:, :, 3:]
+                        pred_part_poses[:, distractor_labels == 0, 3:]
                         .unsqueeze(2)
                         .repeat(1, 1, num_point, 1),
                         input_part_pcs,
@@ -610,7 +636,7 @@ def forward(
                 )
                 gt_pts = (
                     qrot(
-                        gt_part_poses[:, :, 3:].unsqueeze(2).repeat(1, 1, num_point, 1),
+                        gt_part_poses[:, distractor_labels == 0, 3:].unsqueeze(2).repeat(1, 1, num_point, 1),
                         input_part_pcs,
                     )
                     + gt_center.unsqueeze(2).repeat(1, 1, num_point, 1)
@@ -697,6 +723,65 @@ def forward(
         total_rot_l2_loss,
         total_rot_cd_loss,
         total_shape_cd_loss,
+        total_distractor_loss
+    )
+
+
+def get_losses(
+    network,
+    conf,
+    input_part_valids,
+    input_part_pcs,
+    pred_part_poses,
+    gt_part_poses,
+    iter_ind
+):
+    # for each type of loss, compute losses per data
+    trans_l2_loss_per_data = network.get_trans_l2_loss(
+        pred_part_poses[:, :, :3], gt_part_poses[:, :, :3], input_part_valids
+    )  # B
+    rot_l2_loss_per_data = network.get_rot_l2_loss(
+        input_part_pcs,
+        pred_part_poses[:, :, 3:],
+        gt_part_poses[:, :, 3:],
+        input_part_valids,
+    )  # B
+    rot_cd_loss_per_data = network.get_rot_cd_loss(
+        input_part_pcs,
+        pred_part_poses[:, :, 3:],
+        gt_part_poses[:, :, 3:],
+        input_part_valids,
+        conf.device,
+    )  # B
+    shape_cd_loss_per_data = network.get_shape_cd_loss(
+        input_part_pcs,
+        pred_part_poses[:, :, 3:],
+        gt_part_poses[:, :, 3:],
+        input_part_valids,
+        pred_part_poses[:, :, :3],
+        gt_part_poses[:, :, :3],
+        conf.device,
+    )
+
+    # for each type of loss, compute avg loss per batch
+    shape_cd_loss = shape_cd_loss_per_data.mean()
+    trans_l2_loss = trans_l2_loss_per_data.mean()
+    rot_l2_loss = rot_l2_loss_per_data.mean()
+    rot_cd_loss = rot_cd_loss_per_data.mean()
+
+    total_loss = (
+            trans_l2_loss * conf.loss_weight_trans_l2
+            + rot_l2_loss * conf.loss_weight_rot_l2
+            + rot_cd_loss * conf.loss_weight_rot_cd
+            + shape_cd_loss * conf.loss_weight_shape_cd
+    )
+
+    return (
+        total_loss,
+        trans_l2_loss,
+        rot_l2_loss,
+        rot_cd_loss,
+        shape_cd_loss,
     )
 
 
@@ -769,6 +854,8 @@ if __name__ == "__main__":
     parser.add_argument("--lr_decay_by", type=float, default=0.9)
     parser.add_argument("--lr_decay_every", type=float, default=5000)
     parser.add_argument("--iter", default=5, type=int, help="times to iteration")
+    parser.add_argument("--distractor_train_type", default='remove', type=str,
+                        help="how to handle distractors for other losses")
 
     # loss weights
     parser.add_argument(

@@ -228,11 +228,11 @@ def distractor_loss_clustering(relation_mat, valid_parts, distractor_labels):
     #distractor labels should be b x p similar to valid parts 
     ret=torch.zeros(relation_mat.shape[0])
     for i in range(relation_mat.shape[0]):
-        num_parts=torch.sum(valid_parts[i])
-        new_relation=relation_mat[i][:num_parts,:num_parts]
+        num_parts = int(torch.sum(valid_parts[i]).item())
+        new_relation = relation_mat[i][:num_parts,:num_parts]
         #compute cluster mask
-        cluster_mask=spectral_cluster(new_relation)
-        ret[i]=rand_index(cluster_mask, distractor_labels[i,:num_parts])
+        cluster_mask = spectral_cluster(new_relation)
+        ret[i] = rand_index(cluster_mask, distractor_labels[i,:num_parts])
     return ret
 
 def random_walk(relation_mat, distractor_labels,k):
@@ -240,18 +240,18 @@ def random_walk(relation_mat, distractor_labels,k):
     #want to compute n iterations of iterations
     #convert relation mat to transition matrix
     T=torch.nn.functional.normalize(relation_mat,p=1,dim=1)
-    return torch.matmul(distribution,torch.matrix_power(T,k))
+    return torch.matmul(distribution.float(),torch.matrix_power(T,k).float())
     
 def distractor_loss_walk(relation_mat, valid_parts, distractor_labels, iterations):
     #want to a bunch of random walks with k time steps and penalize based on the p(not distractor point | initial start at distractor)
     #initial distribution should be bxp where it's 1/(num distractors) in place of distractor
     ret=torch.zeros([relation_mat.shape[0],1])
     for i in range(relation_mat.shape[0]):
-        num_parts=torch.sum(valid_parts[i])
-        new_relation=relation_mat[i][:num_parts,:num_parts]
+        num_parts = int(torch.sum(valid_parts[i]).item())
+        new_relation = relation_mat[i][:num_parts,:num_parts]
         walk = random_walk(new_relation, distractor_labels[i,:num_parts],iterations)
         #compute loss of this walk so want the sum of distractor points to be as large as possible
-        ret[i]=1-(torch.sum(torch.mul(walk, distractor_labels[i,:num_parts])))
+        ret[i] = 1-(torch.sum(torch.mul(walk, distractor_labels[i,:num_parts])))
     return ret
 
 class Network(nn.Module):
@@ -343,6 +343,82 @@ class Network(nn.Module):
 
         return total_pred_poses
 
+    def forward(self, conf, relation_matrix, part_valids, part_pcs, instance_label, class_list):
+        batch_size = part_pcs.shape[0]
+        num_part = part_pcs.shape[1]
+        relation_matrix = relation_matrix.double()
+        valid_matrix = copy.copy(relation_matrix)
+        pred_poses = torch.zeros((batch_size, num_part, 7)).to(conf.device)
+        total_pred_poses = []
+        # obtain per-part feature
+        part_feats = self.mlp2(part_pcs.view(batch_size * num_part, -1, 3)).view(batch_size, num_part,
+                                                                                 -1)  # output: B x P x F
+        local_feats = part_feats
+        random_noise = np.random.normal(loc=0.0, scale=1.0, size=[batch_size, num_part, 16]).astype(
+            np.float32)  # B x P x 16
+        random_noise = torch.tensor(random_noise).to(self.conf.device)  # B x P x 16
+
+        for iter_ind in range(self.conf.iter):
+            # adjust relations
+            if iter_ind >= 1:
+                cur_poses = copy.copy(pred_poses).double()
+                pose_feat = self.pose_extractor(cur_poses.float())
+                if iter_ind % 2 == 1:
+                    for i in range(batch_size):
+                        for j in range(len(class_list[i])):
+                            cur_pose_feats = pose_feat[i, class_list[i][j]]
+                            cur_pose_feat = cur_pose_feats.max(dim=-2)[0]
+                            pose_feat[i, class_list[i][j]] = cur_pose_feat
+                            part_feats_copy = copy.copy(part_feats)
+                            with torch.no_grad():
+                                part_feats_copy[i, class_list[i][j]] = part_feats_copy[i, class_list[i][j]].max(dim=-2)[
+                                    0]
+
+                pose_featA = pose_feat.unsqueeze(1).repeat(1, num_part, 1, 1)
+                pose_featB = pose_feat.unsqueeze(2).repeat(1, 1, num_part, 1)
+                input_relation = torch.cat([pose_featA, pose_featB], dim=-1).float()
+                if iter_ind % 2 == 0:
+                    new_relation = self.relation_predictor_dense(input_relation.view(batch_size, -1, 256)).view(
+                        batch_size, num_part, num_part)
+                elif iter_ind % 2 == 1:
+                    new_relation = self.relation_predictor(input_relation.view(batch_size, -1, 256)).view(batch_size,
+                                                                                                          num_part,
+                                                                                                          num_part)
+                relation_matrix = new_relation.double() * valid_matrix
+                # mlp3
+            if iter_ind >= 1 and iter_ind % 2 == 1:
+                part_feat1 = part_feats_copy.unsqueeze(2).repeat(1, 1, num_part, 1)  # B x P x P x F
+                part_feat2 = part_feats_copy.unsqueeze(1).repeat(1, num_part, 1, 1)  # B x P x P x F
+            else:
+                part_feat1 = part_feats.unsqueeze(2).repeat(1, 1, num_part, 1)  # B x P x P x F
+                part_feat2 = part_feats.unsqueeze(1).repeat(1, num_part, 1, 1)  # B x P x P x F
+            input_3 = torch.cat([part_feat1, part_feat2], dim=-1)  # B x P x P x 2F
+            mlp3 = self.mlp3s[iter_ind]
+            mlp4 = self.mlp4s[iter_ind]
+            mlp5 = self.mlp5s[iter_ind]
+            # for the pair of parts (A, B), A is the query one, A is about the row, A is the former in part_feats
+            part_relation = mlp3(input_3.view(batch_size * num_part, num_part, -1)).view(batch_size, num_part,
+                                                                                         num_part, -1)  # B x P x P x F
+
+            # pooling
+            part_message = part_relation.double() * relation_matrix.unsqueeze(3).double()  # B x P x P x F
+            part_message = part_message.sum(dim=2)  # B x P x F
+            norm = relation_matrix.sum(dim=-1)  # B x P
+            delta = 1e-6
+            normed_part_message = part_message / (norm.unsqueeze(dim=2) + delta)  # B x P x F
+
+            # mlp4
+            input_4 = torch.cat([normed_part_message.double(), part_feats.double()], dim=-1)  # B x P x 2F
+            part_feats = mlp4(input_4.float())  # B x P x F
+
+            # mlp5
+            input_5 = torch.cat([local_feats, part_feats.float(), instance_label, pred_poses, random_noise], dim=-1)
+            pred_poses = mlp5(input_5.float())
+
+            # save poses
+            total_pred_poses.append(pred_poses)
+
+        return total_pred_poses, relation_matrix
 
     """
             Input: * x N x 3, * x 3, * x 4, * x 3, * x 4,
@@ -465,7 +541,7 @@ class Network(nn.Module):
         loss_per_data = loss_per_data.to(device)
         return loss_per_data
     
-    def get_distractor_loss(self, relation, valid_parts,distractors, iterations):
+    def get_distractor_loss(self, relation, valid_parts, distractors, iterations):
         return distractor_loss_clustering(relation,valid_parts,distractors) + distractor_loss_walk(relation,valid_parts,distractors,iterations)
 
         """

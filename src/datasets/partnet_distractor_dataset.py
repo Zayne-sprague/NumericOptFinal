@@ -191,7 +191,7 @@ class PartNetDistractorDataset(data.Dataset):
                 gold_labels = [0] * self.training_dataset.max_num_part
                 distractor_labels = [1] * self.distractor_dataset.max_num_part
 
-                labels = np.array([*gold_labels, *distractor_labels])
+                labels = torch.tensor([*gold_labels, *distractor_labels])
                 labels[:] = labels[random_indices]
                 data_feats = data_feats + (labels,)
 
